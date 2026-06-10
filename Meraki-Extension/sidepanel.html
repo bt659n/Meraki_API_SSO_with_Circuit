@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <style>
+        body { padding: 15px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 14px; background-color: #f5f5f6; margin: 0; }
+        
+        .header-container { border-bottom: 2px solid #e2e8f0; padding-bottom: 6px; margin-bottom: 12px; }
+        .header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+        h3 { margin: 0; color: #1c2730; font-size: 15px; display: flex; align-items: center; }
+        
+        /* 🔥 新增：版本号微型徽章的极客风样式 */
+        #spec-version-badge { font-size: 10px; background: #dcfce7; color: #16a34a; padding: 2px 6px; border-radius: 4px; font-weight: bold; margin-left: 8px; border: 1px solid #bbf7d0; font-family: Consolas, monospace; display: none; }
+
+        select#env-select { width: auto; padding: 4px 22px 4px 6px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 4px; background-color: white; font-weight: bold; color: #1e293b; cursor: pointer; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23475569'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 4px center; background-size: 12px; -webkit-appearance: none; -moz-appearance: none; appearance: none; }
+        select#env-select:hover { border-color: #16a34a; background-color: #f8fafc; }
+        
+        .links-row { display: flex; justify-content: flex-end; gap: 12px; font-size: 11px; margin-top: 2px; }
+        .links-row a { text-decoration: none; font-weight: 500; }
+        .links-row a#link-whatsnew { color: #16a34a; }
+        .links-row a#link-whatsnew:hover { text-decoration: underline; }
+        .links-row a.github-link { color: #64748b; }
+        .links-row a.github-link:hover { color: #334155; text-decoration: underline; }
+
+        .row { margin-bottom: 12px; }
+        label { font-weight: bold; display: block; margin-bottom: 6px; color: #333; font-size: 13px; }
+        
+        .search-wrapper { position: relative; margin-bottom: 8px; }
+        input#api-search { width: 100%; padding: 6px 10px 6px 28px; box-sizing: border-box; font-size: 13px; border: 1px solid #cbd5e1; border-radius: 4px; background-color: white; }
+        input#api-search:focus { border-color: #16a34a; outline: none; box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.1); }
+        .search-icon { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 12px; pointer-events: none; }
+
+        input[type="text"] { width: 100%; padding: 6px 8px; box-sizing: border-box; font-size: 13px; border: 1px solid #ccc; border-radius: 4px; background-color: white; }
+        
+        .tree-box { border: 1px solid #cbd5e1; border-radius: 4px; max-height: 230px; overflow-y: auto; background: white; padding: 8px; font-size: 13px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.05); }
+        details { margin-left: 10px; margin-top: 4px; }
+        summary { cursor: pointer; padding: 4px 6px; color: #1e293b; font-weight: 600; user-select: none; border-radius: 4px; }
+        summary:hover { background-color: #f1f5f9; }
+        
+        .tree-leaf { cursor: pointer; padding: 6px 8px 6px 12px; color: #475569; user-select: none; border-radius: 4px; margin-top: 2px; display: flex; align-items: center; line-height: 1.3; }
+        .tree-leaf:hover { background-color: #f0fdf4; color: #16a34a; }
+        .tree-leaf.active { background-color: #16a34a; color: white; font-weight: bold; }
+        
+        .method-tag { font-family: monospace; font-size: 10px; padding: 2px 5px; border-radius: 3px; margin-right: 6px; font-weight: bold; flex-shrink: 0; }
+        .method-tag.get { color: #16a34a; background: #dcfce7; }
+        .method-tag.post { color: #ea580c; background: #ffedd5; }
+        .tree-leaf.active .method-tag { background: white !important; }
+        .tree-leaf.active .method-tag.get { color: #16a34a; }
+        .tree-leaf.active .method-tag.post { color: #ea580c; }
+
+        #api-desc { background: #fff; padding: 12px; border-left: 4px solid #16a34a; margin-bottom: 12px; max-height: 100px; overflow-y: auto; line-height: 1.5; font-size: 13px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border-radius: 0 4px 4px 0; }
+        
+        .param-group { margin-bottom: 8px; }
+        .query-collapse { background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 4px; padding: 6px; margin-top: 8px; }
+        .query-collapse summary { font-size: 12px; color: #0284c7; font-weight: bold; padding: 2px; }
+        
+        button#run-btn { background: #16a34a; color: white; border: none; padding: 10px 15px; cursor: pointer; border-radius: 4px; font-weight: bold; width: 100%; font-size: 14px; margin-bottom: 12px; transition: background 0.2s;}
+        button#run-btn:hover { background: #15803d; }
+
+        .log-header { font-size: 13px; font-weight: bold; color: #334155; margin-bottom: 4px; }
+        #debug-log { background: #1e293b; color: #94a3b8; padding: 10px; overflow: auto; height: 120px; border-radius: 4px; font-family: Consolas, monospace; white-space: pre-wrap; font-size: 11px; border: 1px solid #334155; margin-bottom: 15px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.2); }
+        
+        .data-header-row { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 4px; }
+        .copy-btn { background: #e2e8f0; color: #475569; border: 1px solid #cbd5e1; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s; }
+        .copy-btn:hover { background: #cbd5e1; color: #1e293b; }
+        .copy-btn.copied { background: #16a34a; color: white; border-color: #16a34a; }
+        
+        #data-result { background: #0f172a; color: #38bdf8; padding: 12px; overflow: auto; min-height: 400px; max-height: 700px; border-radius: 4px; font-family: Consolas, monospace; white-space: pre-wrap; font-size: 12px; border: 1px solid #334155; box-shadow: inset 0 2px 4px rgba(0,0,0,0.3); margin: 0; }
+    </style>
+</head>
+<body>
+    <div class="header-container">
+        <div class="header-row">
+            <h3>Meraki API 极速控制台 <span id="spec-version-badge"></span></h3>
+            <select id="env-select">
+                <option value="api.meraki.com">🌐 Global (.com)</option>
+                <option value="api.meraki.cn">🇨🇳 China (.cn)</option>
+                <option value="api.meraki.ca">🇨🇦 Canada (.ca)</option>
+                <option value="api.meraki.in">🇮🇳 India (.in)</option>
+            </select>
+        </div>
+        <div class="links-row">
+            <a id="link-whatsnew" href="#" target="_blank">📅 官方新特性</a>
+            <a class="github-link" href="https://github.com/meraki/openapi/commits/master/openapi/spec3.json" target="_blank">⚙️ GitHub 变更记录</a>
+        </div>
+    </div>
+
+    <div class="row" style="margin-bottom: 6px;">
+        <label>1. 浏览或搜索 API 操作:</label>
+        <div class="search-wrapper">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="api-search" placeholder="输入 Operation ID 过滤 (例如: getNetworkAlerts...)">
+        </div>
+        <div id="category-tree-container" class="tree-box">正在解析官方 OpenAPI 文档...</div>
+    </div>
+
+    <div id="api-desc">请在上方目录中选择一个 API 操作...</div>
+    <div class="row" id="param-container"></div>
+    
+    <button id="run-btn">运行当前 API (SSO 直连)</button>
+
+    <div class="log-header">⚙️ 运行状态与引擎日志:</div>
+    <pre id="debug-log">终端就绪...</pre>
+
+    <div class="data-header-row">
+        <div class="log-header" style="margin-bottom: 0;">📦 原始返回数据 (JSON):</div>
+        <button id="copy-btn" class="copy-btn" title="一键复制数据到剪贴板">📋 复制数据</button>
+    </div>
+    <pre id="data-result">等待发起请求...</pre>
+
+    <script src="popup.js"></script>
+</body>
+</html>
