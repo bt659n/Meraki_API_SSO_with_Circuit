@@ -43,7 +43,7 @@ A lightweight, premium Chrome Developer Extension designed for Cisco Meraki Netw
 1. Open Google Chrome and go to `chrome://extensions/`.
 2. Enable **Developer mode** in the top-right corner.
 3. Click the **Load unpacked** button in the top-left corner.
-4. Select the project directory: `/Users/bo_tang/Documents/Meraki_Support/Meraki-Extension_For_AG`.
+4. Select the root folder of this repository (the folder containing `manifest.json`).
 5. The extension **"Meraki API SSO Console"** will install and appear in your extension list.
 
 ---
