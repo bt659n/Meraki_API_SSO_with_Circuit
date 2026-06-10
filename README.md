@@ -48,3 +48,32 @@
 const syncTime = () => { textInput.value = datePicker.value ? datePicker.value + ':00Z' : ''; };
 datePicker.addEventListener('input', syncTime);
 datePicker.addEventListener('change', syncTime);
+
+
+
+
+
+
+📦 安装指南 (Installation)
+由于本项目申请了全局 Dashboard 域名的深层网络特权，为了企业合规性，强烈建议通过 ZIP 压缩包在团队内部以开发者模式分发，不要上架 Chrome Web Store。
+	1.	在本 GitHub 仓库点击 Code -> Download ZIP。
+	2.	将 ZIP 文件解压到本地固定文件夹（如 D:\Meraki_Tools\Meraki_API_Console）。
+	3.	打开 Chrome 浏览器，访问扩展管理页：chrome://extensions/。
+	4.	打开页面右上角的 开发者模式 (Developer mode)。
+	5.	点击左上角 加载已解压的扩展程序 (Load unpacked)。
+	6.	选择你刚才解压的文件夹，安装完成！建议将插件“钉”在浏览器工具栏。
+🕹️ 使用姿势 (Usage)
+	1.	先决条件：确保你的 Chrome 浏览器当前有一个活跃的 Meraki Dashboard 标签页（无论是 .com 还是 .cn）。
+	2.	打开插件侧边栏。
+	3.	在顶部分别选择你要测试的 目标环境 (Region)。
+	4.	使用左侧菜单浏览，或在搜索框输入 Operation ID（如 getNetworkAlertsHistory）。
+	5.	填入必填的 Path 参数（如 networkId）。
+	6.	（可选）展开高级查询参数，设定 perPage: 1000 并选择起始时间。
+	7.	点击 运行当前 API (SSO 直连)。
+	8.	喝口茶，看着终端日志自动疯狂翻页拉取，最后点击 📋 复制数据。
+🗺️ 版本演进轨迹 (Track / Changelog)
+•	v4.4 (Current): 史诗级 UI 终局。分离调试日志与纯净数据输出窗口；新增一键复制数据至系统剪贴板；加入底层 CSP 防护绕过，彻底解决日历二次选择不同步问题。
+•	v4.3: 加入 India (.in) 与 Canada (.ca) 节点支持；实装 Smart Cursor Fallback（智能 CORS 游标回退机制）；加入 t0/t1 时间戳智能可视化转换。
+•	v4.2: 重构为 Manifest V3 SidePanel 侧边栏模式；加入基于 spec3.json 的动态树状目录渲染。
+•	v4.1: 接入 host_permissions 攻克跨域直连痛点；支持 .cn 国区独立 Session 特权。
+Built with coffee and pure engineering empathy by Meraki NSE.
