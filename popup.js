@@ -427,12 +427,36 @@ function applyTimeShortcut(minutes) {
 
     if (timespanEl) {
         timespanEl.value = String(minutes * 60);
+        if (t0El) t0El.value = '';
+        if (t1El) t1El.value = '';
+        if (t0DateEl) t0DateEl.value = '';
+        if (t1DateEl) t1DateEl.value = '';
+        return;
     }
     if (t0El) t0El.value = start.toISOString();
     if (t1El) t1El.value = now.toISOString();
 
     if (t0DateEl) t0DateEl.value = isoToDateTimeLocal(start);
     if (t1DateEl) t1DateEl.value = isoToDateTimeLocal(now);
+}
+
+function normalizeTimeQueryValues(queryValues) {
+    const hasTimespan = Boolean(queryValues.timespan);
+    const hasT0 = Boolean(queryValues.t0);
+    const hasT1 = Boolean(queryValues.t1);
+
+    if (hasTimespan && hasT0 && hasT1) {
+        delete queryValues.timespan;
+        return 'Both timespan and t0/t1 were set. Sending t0/t1 and omitting timespan.';
+    }
+
+    if (hasTimespan && (hasT0 || hasT1)) {
+        delete queryValues.t0;
+        delete queryValues.t1;
+        return 'Timespan was set with only one of t0/t1. Sending timespan and omitting partial t0/t1.';
+    }
+
+    return '';
 }
 
 function isoToDateTimeLocal(date) {
@@ -495,7 +519,7 @@ function getFriendlyApiErrorHint(status, body) {
     const errorText = extractErrorText(body).toLowerCase();
 
     if (status === 400 && /timespan|t0|t1/.test(errorText)) {
-        return 'This API requires either timespan or both t0 and t1. Use the Time shortcuts above, or fill t0 and t1 manually in ISO 8601 format.';
+        return 'This API requires either timespan OR both t0 and t1, but not both groups at the same time. Use a Time shortcut for timespan, or clear timespan and fill t0/t1 manually.';
     }
     if (status === 401) {
         return 'Your Dashboard session may not be authenticated. Open the matching Meraki Dashboard shard in Chrome, sign in, then retry.';
@@ -585,7 +609,7 @@ async function runApi() {
         }
     }
 
-    const queryPairs = [];
+    const queryValues = {};
     if (apiParams.length > 0) {
         apiParams.forEach(param => {
             if (param.in === 'query') {
@@ -601,12 +625,16 @@ async function runApi() {
                 }
 
                 if (val) {
-                    queryPairs.push(`${encodeURIComponent(param.name)}=${encodeURIComponent(val)}`);
+                    queryValues[param.name] = val;
                 }
             }
         });
     }
 
+    const timeNormalizationLog = normalizeTimeQueryValues(queryValues);
+    if (timeNormalizationLog) log(`ℹ️ ${timeNormalizationLog}`);
+
+    const queryPairs = Object.keys(queryValues).map(key => `${encodeURIComponent(key)}=${encodeURIComponent(queryValues[key])}`);
     const baseQueryString = queryPairs.length > 0 ? `?${queryPairs.join('&')}` : '';
     let targetUrl = `https://${envDomain}/api/v1${finalPath}${baseQueryString}`;
     let baseUrlWithoutCursor = targetUrl; 
