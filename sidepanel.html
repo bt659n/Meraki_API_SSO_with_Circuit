@@ -59,6 +59,11 @@
         .param-group { margin-bottom: 8px; }
         .query-collapse { background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 4px; padding: 6px; margin-top: 8px; }
         .query-collapse summary { font-size: 12px; color: #0284c7; font-weight: bold; padding: 2px; }
+        .time-shortcuts { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 4px; padding: 8px; margin: 8px 0 12px; }
+        .time-shortcuts-title { color: #166534; font-size: 12px; font-weight: 800; margin-bottom: 6px; }
+        .time-shortcut-row { display: flex; gap: 6px; flex-wrap: wrap; }
+        .shortcut-btn { background: white; color: #166534; border: 1px solid #86efac; border-radius: 4px; padding: 5px 8px; font-size: 11px; font-weight: 700; cursor: pointer; }
+        .shortcut-btn:hover { background: #dcfce7; }
         
         button#run-btn { background: #16a34a; color: white; border: none; padding: 10px 15px; cursor: pointer; border-radius: 4px; font-weight: bold; width: 100%; font-size: 14px; margin-bottom: 12px; transition: background 0.2s;}
         button#run-btn:hover { background: #15803d; }
@@ -110,6 +115,12 @@
         .circuit-panel { margin-top: 14px; border: 1px solid #bfdbfe; border-left: 4px solid #2563eb; background: #eff6ff; border-radius: 4px; padding: 10px; }
         .circuit-panel h4 { margin: 0 0 8px 0; font-size: 13px; color: #1e3a8a; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
         #circuit-payload-hint { color: #1d4ed8; font-size: 11px; font-family: Consolas, monospace; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
+        .circuit-config-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+        .circuit-config-row label { margin: 0 0 4px; color: #1e3a8a; font-size: 11px; }
+        .circuit-config-row select { width: 100%; border: 1px solid #93c5fd; border-radius: 4px; background: white; color: #172554; font-size: 12px; padding: 6px 8px; }
+        .circuit-option-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; color: #1e3a8a; font-size: 11px; font-weight: 700; }
+        .circuit-option-row label { display: inline-flex; gap: 5px; align-items: center; margin: 0; font-size: 11px; color: #1e3a8a; }
+        #circuit-history-select { max-width: 100%; }
         .circuit-panel textarea { width: 100%; min-height: 76px; box-sizing: border-box; resize: vertical; border: 1px solid #93c5fd; border-radius: 4px; padding: 8px; font-size: 12px; line-height: 1.4; font-family: inherit; color: #172554; background: white; }
         .circuit-panel textarea:focus { border-color: #2563eb; outline: none; box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12); }
         .circuit-actions { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
@@ -193,6 +204,33 @@
             <span>Send Result to Circuit AI</span>
             <span id="circuit-payload-hint"></span>
         </h4>
+        <div class="circuit-config-row">
+            <div>
+                <label for="circuit-preset-select">Prompt preset</label>
+                <select id="circuit-preset-select">
+                    <option value="troubleshoot">Troubleshooting Summary</option>
+                    <option value="case-note">Case Note</option>
+                    <option value="anomalies">Find Anomalies</option>
+                    <option value="customer">Customer Explanation</option>
+                    <option value="next-steps">Next Steps</option>
+                </select>
+            </div>
+            <div>
+                <label for="circuit-data-scope">Data scope</label>
+                <select id="circuit-data-scope">
+                    <option value="smart">Smart table/JSON</option>
+                    <option value="visible-table">Visible table rows</option>
+                    <option value="full-json">Full JSON result</option>
+                </select>
+            </div>
+        </div>
+        <div class="circuit-option-row">
+            <label><input type="checkbox" id="circuit-redact-sensitive" checked> Redact MAC/IP/serial-like values</label>
+            <label for="circuit-history-select">Recent</label>
+            <select id="circuit-history-select">
+                <option value="">No saved Circuit responses</option>
+            </select>
+        </div>
         <textarea id="circuit-prompt" placeholder="Ask Circuit what to do with the latest API result...">Analyze this Meraki API result. Summarize the important findings, call out anomalies, and suggest practical next troubleshooting steps.</textarea>
         <div class="circuit-actions">
             <button id="send-circuit-btn">Send to Circuit</button>

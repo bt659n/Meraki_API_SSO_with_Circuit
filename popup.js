@@ -8,6 +8,15 @@ let currentTableData = [];   // Store flat array of objects for table searching 
 let tableHeaders = [];       // Store sorted header list
 const CIRCUIT_HOME_URL = 'https://circuit.cisco.com/app/home';
 const CIRCUIT_DATA_CHAR_LIMIT = 70000;
+const CIRCUIT_HISTORY_KEY = 'circuitAnalysisHistory';
+const CIRCUIT_HISTORY_LIMIT = 8;
+const CIRCUIT_PROMPT_PRESETS = {
+    troubleshoot: 'Analyze this Meraki API result. Summarize the important findings, call out anomalies, and suggest practical next troubleshooting steps.',
+    'case-note': 'Write a concise support case note from this Meraki API result. Include symptoms, evidence, impact, and recommended next action. Keep it professional and grounded in the data.',
+    anomalies: 'Inspect this Meraki API result for anomalies, outliers, missing data, errors, or suspicious state changes. List the strongest findings first and cite the exact fields or rows that support them.',
+    customer: 'Explain this Meraki API result in customer-friendly language. Avoid internal jargon, keep numeric claims accurate, and include what we recommend checking next.',
+    'next-steps': 'Based on this Meraki API result, suggest the next troubleshooting steps. Separate immediate checks, useful follow-up API calls, and information to request from the customer.'
+};
 let lastCircuitAnswer = '';
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -120,6 +129,11 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('copy-circuit-response-btn').addEventListener('click', () => {
         copyCircuitText(lastCircuitAnswer, 'copy-circuit-response-btn', 'Copy Response');
     });
+    document.getElementById('circuit-preset-select').addEventListener('change', applyCircuitPromptPreset);
+    document.getElementById('circuit-data-scope').addEventListener('change', updateCircuitPayloadHint);
+    document.getElementById('circuit-redact-sensitive').addEventListener('change', updateCircuitPayloadHint);
+    document.getElementById('circuit-history-select').addEventListener('change', loadCircuitHistoryItem);
+    loadCircuitHistory();
 });
 
 function formatTagName(str) {
@@ -343,6 +357,7 @@ function loadApiToConsole(apiId) {
     }
 
     let finalHtml = pathHtml || '<label style="color:#16a34a; display:block; margin-bottom:4px;">✓ This API does not require any path parameters.</label>';
+    finalHtml += buildTimeShortcutHtml(apiParams);
     
     if (queryHtml) {
         finalHtml += `
@@ -360,6 +375,7 @@ function loadApiToConsole(apiId) {
     }
 
     paramContainer.innerHTML = finalHtml;
+    bindTimeShortcutEvents();
 
     ['t0', 't1'].forEach(timeParam => {
         const datePicker = document.getElementById(`param-query-date-${timeParam}`);
@@ -374,6 +390,66 @@ function loadApiToConsole(apiId) {
     });
 }
 
+function buildTimeShortcutHtml(apiParams) {
+    const queryNames = new Set((apiParams || []).filter(param => param.in === 'query').map(param => param.name));
+    const supportsTimespan = queryNames.has('timespan');
+    const supportsT0T1 = queryNames.has('t0') || queryNames.has('t1');
+
+    if (!supportsTimespan && !supportsT0T1) return '';
+
+    return `
+        <div class="time-shortcuts">
+            <div class="time-shortcuts-title">Time shortcuts</div>
+            <div class="time-shortcut-row">
+                <button type="button" class="shortcut-btn" data-minutes="5">Last 5 min</button>
+                <button type="button" class="shortcut-btn" data-minutes="30">Last 30 min</button>
+                <button type="button" class="shortcut-btn" data-minutes="120">Last 2 hours</button>
+                <button type="button" class="shortcut-btn" data-minutes="1440">Last 1 day</button>
+            </div>
+        </div>
+    `;
+}
+
+function bindTimeShortcutEvents() {
+    document.querySelectorAll('.shortcut-btn[data-minutes]').forEach(button => {
+        button.addEventListener('click', () => applyTimeShortcut(Number(button.dataset.minutes)));
+    });
+}
+
+function applyTimeShortcut(minutes) {
+    const now = new Date();
+    const start = new Date(now.getTime() - minutes * 60 * 1000);
+    const timespanEl = document.getElementById('param-query-timespan');
+    const t0El = document.getElementById('param-query-t0');
+    const t1El = document.getElementById('param-query-t1');
+    const t0DateEl = document.getElementById('param-query-date-t0');
+    const t1DateEl = document.getElementById('param-query-date-t1');
+
+    if (timespanEl) {
+        timespanEl.value = String(minutes * 60);
+    }
+    if (t0El) t0El.value = start.toISOString();
+    if (t1El) t1El.value = now.toISOString();
+
+    if (t0DateEl) t0DateEl.value = isoToDateTimeLocal(start);
+    if (t1DateEl) t1DateEl.value = isoToDateTimeLocal(now);
+}
+
+function isoToDateTimeLocal(date) {
+    const pad = value => String(value).padStart(2, '0');
+    return [
+        date.getFullYear(),
+        '-',
+        pad(date.getMonth() + 1),
+        '-',
+        pad(date.getDate()),
+        'T',
+        pad(date.getHours()),
+        ':',
+        pad(date.getMinutes())
+    ].join('');
+}
+
 function parseResponseBody(text) {
     if (!text) return null;
     try {
@@ -385,11 +461,18 @@ function parseResponseBody(text) {
 
 function formatApiError(response, body, requestUrl) {
     const statusLine = `HTTP ${response.status} ${response.statusText || 'Error'}`;
+    const friendlyHint = getFriendlyApiErrorHint(response.status, body);
     const lines = [
         statusLine,
         `Request: ${requestUrl}`,
         ''
     ];
+
+    if (friendlyHint) {
+        lines.push('Hint:');
+        lines.push(friendlyHint);
+        lines.push('');
+    }
 
     if (body && typeof body === 'object') {
         if (Array.isArray(body.errors) && body.errors.length > 0) {
@@ -406,6 +489,42 @@ function formatApiError(response, body, requestUrl) {
     }
 
     return lines.join('\n');
+}
+
+function getFriendlyApiErrorHint(status, body) {
+    const errorText = extractErrorText(body).toLowerCase();
+
+    if (status === 400 && /timespan|t0|t1/.test(errorText)) {
+        return 'This API requires either timespan or both t0 and t1. Use the Time shortcuts above, or fill t0 and t1 manually in ISO 8601 format.';
+    }
+    if (status === 401) {
+        return 'Your Dashboard session may not be authenticated. Open the matching Meraki Dashboard shard in Chrome, sign in, then retry.';
+    }
+    if (status === 403) {
+        return 'The current SSO session may not have access to this organization, network, device, or API endpoint.';
+    }
+    if (status === 404) {
+        return 'Check that the orgId, networkId, device serial, or other path parameter belongs to the selected environment shard.';
+    }
+    if (status === 429) {
+        return 'Meraki rate limit was reached. Wait briefly and retry with a narrower time range or fewer paginated requests.';
+    }
+    if (status >= 500) {
+        return 'The Meraki API gateway returned a server-side error. Retry later or narrow the request if it is expensive.';
+    }
+
+    return '';
+}
+
+function extractErrorText(body) {
+    if (!body) return '';
+    if (typeof body === 'string') return body;
+    if (Array.isArray(body.errors)) return body.errors.join(' ');
+    try {
+        return JSON.stringify(body);
+    } catch (e) {
+        return String(body);
+    }
 }
 
 async function runApi() {
@@ -646,7 +765,8 @@ function updateCircuitPayloadHint() {
         return;
     }
 
-    const serialized = JSON.stringify(rawResponseData);
+    const payloadData = getCircuitPayloadData();
+    const serialized = JSON.stringify(payloadData);
     const truncated = serialized.length > CIRCUIT_DATA_CHAR_LIMIT;
     hint.innerText = truncated
         ? `~${CIRCUIT_DATA_CHAR_LIMIT.toLocaleString()} chars sent`
@@ -666,9 +786,7 @@ function buildCircuitPrompt() {
         ? `[${currentSelectedApi.method}] ${currentSelectedApi.path}`
         : 'Unknown Meraki API operation';
 
-    const sourceData = currentTableData.length > 0
-        ? { tableHeaders, rows: currentTableData }
-        : rawResponseData;
+    const sourceData = getCircuitPayloadData();
 
     let serialized = JSON.stringify(sourceData, null, 2);
     const originalLength = serialized.length;
@@ -693,6 +811,60 @@ function buildCircuitPrompt() {
         serialized,
         '```'
     ].join('\n');
+}
+
+function getCircuitPayloadData() {
+    const scope = document.getElementById('circuit-data-scope') ? document.getElementById('circuit-data-scope').value : 'smart';
+    const shouldRedact = document.getElementById('circuit-redact-sensitive') ? document.getElementById('circuit-redact-sensitive').checked : true;
+    let data;
+
+    if (scope === 'full-json') {
+        data = rawResponseData;
+    } else if (scope === 'visible-table') {
+        data = currentTableData.length > 0 ? { tableHeaders, rows: getVisibleTableRows() } : rawResponseData;
+    } else {
+        data = currentTableData.length > 0 ? { tableHeaders, rows: currentTableData } : rawResponseData;
+    }
+
+    return shouldRedact ? redactSensitiveData(data) : data;
+}
+
+function getVisibleTableRows() {
+    if (currentTableData.length === 0) return [];
+
+    return currentTableData.filter((row, idx) => {
+        const tr = document.getElementById(`table-row-${idx}`);
+        return !tr || tr.style.display !== 'none';
+    });
+}
+
+function redactSensitiveData(value, key = '') {
+    if (value === null || value === undefined) return value;
+
+    if (typeof value === 'string') {
+        return redactSensitiveString(value, key);
+    }
+    if (Array.isArray(value)) {
+        return value.map(item => redactSensitiveData(item, key));
+    }
+    if (typeof value === 'object') {
+        const redacted = {};
+        Object.keys(value).forEach(childKey => {
+            redacted[childKey] = redactSensitiveData(value[childKey], childKey);
+        });
+        return redacted;
+    }
+    return value;
+}
+
+function redactSensitiveString(value, key = '') {
+    if (/serial/i.test(key)) return '[REDACTED_SERIAL]';
+
+    return value
+        .replace(/\b[A-Fa-f0-9]{2}(?::[A-Fa-f0-9]{2}){5}\b/g, '[REDACTED_MAC]')
+        .replace(/\b[A-Fa-f0-9]{2}(?:-[A-Fa-f0-9]{2}){5}\b/g, '[REDACTED_MAC]')
+        .replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, '[REDACTED_IP]')
+        .replace(/\b[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}\b/g, '[REDACTED_SERIAL]');
 }
 
 async function sendCurrentResultToCircuit() {
@@ -761,6 +933,7 @@ async function sendCurrentResultToCircuit() {
 
         setStatus(`Circuit response received. Session: ${result.session_id || 'new conversation'}`);
         renderCircuitResponse(result.answer || '(Circuit returned an empty response.)');
+        saveCircuitHistoryItem(result.answer || '', getCircuitUserPrompt());
     } catch (err) {
         setStatus(`Circuit request failed: ${err.message}`);
         renderCircuitResponse([
@@ -776,6 +949,78 @@ async function sendCurrentResultToCircuit() {
             button.innerText = 'Send to Circuit';
         }
     }
+}
+
+function applyCircuitPromptPreset() {
+    const select = document.getElementById('circuit-preset-select');
+    const prompt = document.getElementById('circuit-prompt');
+    if (!select || !prompt) return;
+
+    prompt.value = CIRCUIT_PROMPT_PRESETS[select.value] || CIRCUIT_PROMPT_PRESETS.troubleshoot;
+}
+
+function getCircuitUserPrompt() {
+    const prompt = document.getElementById('circuit-prompt');
+    return prompt ? prompt.value.trim() : '';
+}
+
+async function loadCircuitHistory() {
+    const select = document.getElementById('circuit-history-select');
+    if (!select) return;
+
+    const data = await chrome.storage.local.get([CIRCUIT_HISTORY_KEY]);
+    const history = Array.isArray(data[CIRCUIT_HISTORY_KEY]) ? data[CIRCUIT_HISTORY_KEY] : [];
+
+    select.innerHTML = '';
+    const emptyOption = document.createElement('option');
+    emptyOption.value = '';
+    emptyOption.innerText = history.length > 0 ? 'Select recent response...' : 'No saved Circuit responses';
+    select.appendChild(emptyOption);
+
+    history.forEach((item, idx) => {
+        const option = document.createElement('option');
+        option.value = String(idx);
+        option.innerText = `${item.createdAtLabel} - ${item.apiLabel}`;
+        select.appendChild(option);
+    });
+}
+
+async function saveCircuitHistoryItem(answer, prompt) {
+    if (!answer) return;
+
+    const data = await chrome.storage.local.get([CIRCUIT_HISTORY_KEY]);
+    const history = Array.isArray(data[CIRCUIT_HISTORY_KEY]) ? data[CIRCUIT_HISTORY_KEY] : [];
+    const apiLabel = currentSelectedApi
+        ? `[${currentSelectedApi.method}] ${currentSelectedApi.path}`
+        : 'Unknown API';
+    const createdAt = new Date();
+
+    history.unshift({
+        createdAt: createdAt.toISOString(),
+        createdAtLabel: createdAt.toLocaleString(),
+        apiLabel,
+        prompt,
+        answer
+    });
+
+    await chrome.storage.local.set({
+        [CIRCUIT_HISTORY_KEY]: history.slice(0, CIRCUIT_HISTORY_LIMIT)
+    });
+    await loadCircuitHistory();
+}
+
+async function loadCircuitHistoryItem() {
+    const select = document.getElementById('circuit-history-select');
+    const prompt = document.getElementById('circuit-prompt');
+    if (!select || select.value === '') return;
+
+    const data = await chrome.storage.local.get([CIRCUIT_HISTORY_KEY]);
+    const history = Array.isArray(data[CIRCUIT_HISTORY_KEY]) ? data[CIRCUIT_HISTORY_KEY] : [];
+    const item = history[Number(select.value)];
+    if (!item) return;
+
+    if (prompt && item.prompt) prompt.value = item.prompt;
+    renderCircuitResponse(item.answer);
 }
 
 async function openCircuitSsoPage(tabId = null) {

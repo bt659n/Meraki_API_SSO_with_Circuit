@@ -37,8 +37,13 @@ A lightweight Chrome Developer Extension designed for Cisco Meraki Network Suppo
 * Sends the latest API response plus your instruction prompt to `https://circuit.cisco.com/app/webservices/generativeAI/brain`.
 * Uses an existing logged-in Circuit tab and parses the streaming response back into the extension.
 * Keeps the AI result as text in the extension, with a copy button for case notes or follow-up work.
+* Includes prompt presets, data-scope selection, optional redaction for MAC/IP/serial-like values, and recent response history.
 
-### 🔄 8. OpenAPI Spec Synchronizer
+### ⏱️ 8. Time Parameter Shortcuts
+* Shows shortcut buttons for APIs with `timespan` or `t0`/`t1` query parameters.
+* Quickly fills common ranges like last 5 minutes, 30 minutes, 2 hours, or 1 day.
+
+### 🔄 9. OpenAPI Spec Synchronizer
 * Keeps the extension updated with the latest Meraki API releases.
 * Features a manual update trigger to fetch and cache the official OpenAPI specifications on-demand.
 
@@ -70,6 +75,7 @@ A lightweight Chrome Developer Extension designed for Cisco Meraki Network Suppo
 
 5. **Execute the Call**:
    Click the green **Run Request** button. Status logs will populate in the debug window.
+   For APIs that require time range parameters, use the generated time shortcut buttons or fill `timespan` / `t0` and `t1` manually.
 
 6. **View and Export Results**:
    * Inspect the formatted payload in the **JSON View** tab.
@@ -78,6 +84,7 @@ A lightweight Chrome Developer Extension designed for Cisco Meraki Network Suppo
 7. **Send Results to Circuit AI**:
    * Open `https://circuit.cisco.com/app/home` in Chrome and make sure you are logged in.
    * Run a Meraki API request in the extension.
-   * Edit the prompt in **Send Result to Circuit AI** and click **Send to Circuit**.
+   * Choose a prompt preset, data scope, and redaction setting in **Send Result to Circuit AI**.
+   * Edit the prompt if needed, then click **Send to Circuit**.
    * The Circuit response will stream back and appear in the extension.
    * If Circuit is not open or the session is not ready, the extension opens `https://circuit.cisco.com/app/home` for SSO. Log in, wait for Circuit to load, then click **Send to Circuit** again.
