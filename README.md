@@ -1,6 +1,6 @@
-# Meraki API SSO Console (v4.5)
+# Meraki API Connect to Circuit AI (v5.0)
 
-A lightweight, premium Chrome Developer Extension designed for Cisco Meraki Network Support Engineers (NSEs). It intercepts, caches, and utilizes active Meraki Dashboard Single Sign-On (SSO) browser sessions to safely execute read-only GET requests and select diagnostic APIs directly from the browser's side panel.
+A lightweight Chrome Developer Extension designed for Cisco Meraki Network Support Engineers (NSEs). It uses active Meraki Dashboard Single Sign-On (SSO) browser sessions to execute read-only GET requests and select diagnostic APIs directly from the browser's side panel, then can send the latest result to Circuit AI through an already logged-in Circuit browser tab.
 
 ---
 
@@ -32,7 +32,13 @@ A lightweight, premium Chrome Developer Extension designed for Cisco Meraki Netw
 * Filter rows instantly with the client-side search box inside the Data Table view.
 * Export filtered or complete table outputs to a formatted `.csv` download file matching your select environment and request path.
 
-### 🔄 7. OpenAPI Spec Synchronizer
+### 🤖 7. Send Result to Circuit AI
+* Adds a **Send to Circuit** panel below the API result.
+* Sends the latest API response plus your instruction prompt to `https://circuit.cisco.com/app/webservices/generativeAI/brain`.
+* Uses an existing logged-in Circuit tab and parses the streaming response back into the extension.
+* Keeps the AI result as text in the extension, with a copy button for case notes or follow-up work.
+
+### 🔄 8. OpenAPI Spec Synchronizer
 * Keeps the extension updated with the latest Meraki API releases.
 * Features a manual update trigger to fetch and cache the official OpenAPI specifications on-demand.
 
@@ -68,3 +74,10 @@ A lightweight, premium Chrome Developer Extension designed for Cisco Meraki Netw
 6. **View and Export Results**:
    * Inspect the formatted payload in the **JSON View** tab.
    * Toggle to the **Data Table** tab for lists, filter results, double-click values to copy them, or click **Download CSV** to export.
+
+7. **Send Results to Circuit AI**:
+   * Open `https://circuit.cisco.com/app/home` in Chrome and make sure you are logged in.
+   * Run a Meraki API request in the extension.
+   * Edit the prompt in **Send Result to Circuit AI** and click **Send to Circuit**.
+   * The Circuit response will stream back and appear in the extension.
+   * If Circuit is not open or the session is not ready, the extension opens `https://circuit.cisco.com/app/home` for SSO. Log in, wait for Circuit to load, then click **Send to Circuit** again.

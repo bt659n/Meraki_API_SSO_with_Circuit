@@ -6,6 +6,9 @@ let apiTreeRoot = {};
 let rawResponseData = null; // Store raw JSON response
 let currentTableData = [];   // Store flat array of objects for table searching & CSV export
 let tableHeaders = [];       // Store sorted header list
+const CIRCUIT_HOME_URL = 'https://circuit.cisco.com/app/home';
+const CIRCUIT_DATA_CHAR_LIMIT = 70000;
+let lastCircuitAnswer = '';
 
 document.addEventListener('DOMContentLoaded', () => {
     const currentYear = new Date().getFullYear();
@@ -112,6 +115,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Table search input filter listener
     document.getElementById('table-search').addEventListener('input', handleTableSearch);
+
+    document.getElementById('send-circuit-btn').addEventListener('click', sendCurrentResultToCircuit);
+    document.getElementById('copy-circuit-response-btn').addEventListener('click', () => {
+        copyCircuitText(lastCircuitAnswer, 'copy-circuit-response-btn', 'Copy Response');
+    });
 });
 
 function formatTagName(str) {
@@ -366,6 +374,40 @@ function loadApiToConsole(apiId) {
     });
 }
 
+function parseResponseBody(text) {
+    if (!text) return null;
+    try {
+        return JSON.parse(text);
+    } catch (e) {
+        return text;
+    }
+}
+
+function formatApiError(response, body, requestUrl) {
+    const statusLine = `HTTP ${response.status} ${response.statusText || 'Error'}`;
+    const lines = [
+        statusLine,
+        `Request: ${requestUrl}`,
+        ''
+    ];
+
+    if (body && typeof body === 'object') {
+        if (Array.isArray(body.errors) && body.errors.length > 0) {
+            lines.push('Errors:');
+            body.errors.forEach(error => lines.push(`- ${error}`));
+            lines.push('');
+        }
+        lines.push('Raw response:');
+        lines.push(JSON.stringify(body, null, 2));
+    } else if (body) {
+        lines.push(String(body));
+    } else {
+        lines.push('No response body returned by the API.');
+    }
+
+    return lines.join('\n');
+}
+
 async function runApi() {
     if (!currentSelectedApi) return alert("Please select an API operation first.");
     
@@ -475,9 +517,10 @@ async function runApi() {
             
             if (!response.ok) {
                 const text = await response.text();
-                let errData = text; try { errData = JSON.parse(text); } catch(e){}
-                log(`❌ Request denied by API gateway (HTTP ${response.status})`);
-                treeContainer.innerText = typeof errData === 'object' ? JSON.stringify(errData, null, 2) : errData;
+                const errData = parseResponseBody(text);
+                const formattedError = formatApiError(response, errData, targetUrl);
+                log(`❌ Request denied by API gateway (HTTP ${response.status} ${response.statusText || 'Error'})`);
+                treeContainer.innerText = formattedError;
                 return;
             }
 
@@ -555,6 +598,7 @@ async function runApi() {
         }
         
         rawResponseData = aggregatedData;
+        updateCircuitPayloadHint();
         
         // 1. Render JSON Tree
         renderJsonTree(aggregatedData, treeContainer);
@@ -589,6 +633,408 @@ async function runApi() {
     } catch (err) {
         log(`💣 Connection blocked: ${err.message}`);
         treeContainer.innerText = `Connection error. Unable to fetch data.\n(Please verify your browser is logged into ${envDomain} and your dashboard session is active)`;
+    }
+}
+
+function updateCircuitPayloadHint() {
+    const hint = document.getElementById('circuit-payload-hint');
+    const status = document.getElementById('circuit-status');
+    if (!hint) return;
+
+    if (!rawResponseData) {
+        hint.innerText = '';
+        return;
+    }
+
+    const serialized = JSON.stringify(rawResponseData);
+    const truncated = serialized.length > CIRCUIT_DATA_CHAR_LIMIT;
+    hint.innerText = truncated
+        ? `~${CIRCUIT_DATA_CHAR_LIMIT.toLocaleString()} chars sent`
+        : `~${serialized.length.toLocaleString()} chars`;
+
+    if (status) {
+        status.innerText = truncated
+            ? 'Ready. Large result will be truncated before sending to Circuit.'
+            : 'Ready to send the latest API result to Circuit.';
+    }
+}
+
+function buildCircuitPrompt() {
+    const taskInput = document.getElementById('circuit-prompt');
+    const task = taskInput ? taskInput.value.trim() : '';
+    const apiLabel = currentSelectedApi
+        ? `[${currentSelectedApi.method}] ${currentSelectedApi.path}`
+        : 'Unknown Meraki API operation';
+
+    const sourceData = currentTableData.length > 0
+        ? { tableHeaders, rows: currentTableData }
+        : rawResponseData;
+
+    let serialized = JSON.stringify(sourceData, null, 2);
+    const originalLength = serialized.length;
+    if (serialized.length > CIRCUIT_DATA_CHAR_LIMIT) {
+        serialized = serialized.slice(0, CIRCUIT_DATA_CHAR_LIMIT);
+    }
+
+    const truncationNote = originalLength > CIRCUIT_DATA_CHAR_LIMIT
+        ? `\nNote: The payload was truncated from ${originalLength} characters to ${CIRCUIT_DATA_CHAR_LIMIT} characters. Ask me to narrow the time range or fields if more detail is needed.\n`
+        : '';
+
+    return [
+        task || 'Analyze this Meraki API result and summarize the important findings.',
+        '',
+        'Return practical support-engineering output. Keep numeric claims grounded in the supplied data.',
+        '',
+        `Source API: ${apiLabel}`,
+        `Operation ID: ${currentSelectedApi && currentSelectedApi.details ? currentSelectedApi.details.operationId || 'None' : 'None'}`,
+        truncationNote,
+        'Data:',
+        '```json',
+        serialized,
+        '```'
+    ].join('\n');
+}
+
+async function sendCurrentResultToCircuit() {
+    const button = document.getElementById('send-circuit-btn');
+    const status = document.getElementById('circuit-status');
+    const responseBox = document.getElementById('circuit-response');
+
+    if (!rawResponseData) {
+        alert('Please run a Meraki API request first.');
+        return;
+    }
+
+    const setStatus = (msg) => {
+        if (status) status.innerText = msg;
+    };
+
+    if (button) {
+        button.disabled = true;
+        button.innerText = 'Sending...';
+    }
+    resetCircuitResponseTools();
+    if (responseBox) {
+        responseBox.style.display = 'block';
+        responseBox.innerText = 'Waiting for Circuit response...';
+    }
+
+    try {
+        const prompt = buildCircuitPrompt();
+        setStatus('Looking for an existing Circuit tab...');
+
+        const tabs = await chrome.tabs.query({ url: 'https://circuit.cisco.com/*' });
+        if (!tabs || tabs.length === 0) {
+            await openCircuitSsoPage();
+            showCircuitLoginPrompt(responseBox, setStatus);
+            return;
+        }
+
+        const circuitTab = tabs.find(tab => tab.url && tab.url.includes('/app/')) || tabs[0];
+        setStatus('Sending prompt through the logged-in Circuit page...');
+
+        let injectionResults;
+        try {
+            injectionResults = await chrome.scripting.executeScript({
+                target: { tabId: circuitTab.id },
+                func: postPromptToCircuitBrain,
+                args: [prompt, Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC']
+            });
+        } catch (scriptErr) {
+            await openCircuitSsoPage(circuitTab.id);
+            showCircuitLoginPrompt(responseBox, setStatus, scriptErr.message);
+            return;
+        }
+
+        const result = injectionResults && injectionResults[0] ? injectionResults[0].result : null;
+        if (!result) {
+            throw new Error('Circuit page did not return a result.');
+        }
+        if (result.needsLogin) {
+            await openCircuitSsoPage(circuitTab.id);
+            showCircuitLoginPrompt(responseBox, setStatus, result.error);
+            return;
+        }
+        if (!result.ok) {
+            throw new Error(result.error || 'Circuit request failed.');
+        }
+
+        setStatus(`Circuit response received. Session: ${result.session_id || 'new conversation'}`);
+        renderCircuitResponse(result.answer || '(Circuit returned an empty response.)');
+    } catch (err) {
+        setStatus(`Circuit request failed: ${err.message}`);
+        renderCircuitResponse([
+            'Unable to send to Circuit.',
+            '',
+            err.message,
+            '',
+            'Make sure https://circuit.cisco.com/app/home is open, loaded, and logged in.'
+        ].join('\n'));
+    } finally {
+        if (button) {
+            button.disabled = false;
+            button.innerText = 'Send to Circuit';
+        }
+    }
+}
+
+async function openCircuitSsoPage(tabId = null) {
+    if (tabId) {
+        await chrome.tabs.update(tabId, { url: CIRCUIT_HOME_URL, active: true });
+        return;
+    }
+
+    const tabs = await chrome.tabs.query({ url: 'https://circuit.cisco.com/*' });
+    const existingTab = tabs && tabs.length > 0 ? tabs[0] : null;
+    if (existingTab && existingTab.id) {
+        await chrome.tabs.update(existingTab.id, { url: CIRCUIT_HOME_URL, active: true });
+        return;
+    }
+
+    await chrome.tabs.create({ url: CIRCUIT_HOME_URL, active: true });
+}
+
+function showCircuitLoginPrompt(responseBox, setStatus, detail = '') {
+    setStatus('Circuit SSO page opened. Log in, wait for Circuit to load, then click Send again.');
+    if (responseBox) {
+        responseBox.innerText = [
+            'Opened Circuit SSO:',
+            CIRCUIT_HOME_URL,
+            '',
+            'After Circuit finishes loading and you are logged in, return here and click Send to Circuit again.',
+            detail ? `\nDetail: ${detail}` : ''
+        ].join('\n');
+    }
+}
+
+function resetCircuitResponseTools() {
+    lastCircuitAnswer = '';
+
+    const actions = document.getElementById('circuit-response-actions');
+
+    if (actions) actions.style.display = 'none';
+}
+
+function renderCircuitResponse(answer) {
+    const responseBox = document.getElementById('circuit-response');
+    const actions = document.getElementById('circuit-response-actions');
+
+    lastCircuitAnswer = answer || '';
+
+    if (responseBox) {
+        responseBox.style.display = 'block';
+        responseBox.innerText = lastCircuitAnswer;
+    }
+    if (actions) actions.style.display = 'flex';
+}
+
+async function copyCircuitText(text, buttonId, defaultLabel) {
+    if (!text) return;
+
+    const button = document.getElementById(buttonId);
+    await navigator.clipboard.writeText(text);
+
+    if (!button) return;
+    button.innerText = 'Copied';
+    setTimeout(() => {
+        button.innerText = defaultLabel;
+    }, 1400);
+}
+
+async function postPromptToCircuitBrain(prompt, userTimezone) {
+    const makeUuid = () => {
+        if (self.crypto && self.crypto.randomUUID) return self.crypto.randomUUID();
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+            const r = Math.random() * 16 | 0;
+            const v = c === 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+        });
+    };
+
+    const safeBtoa = (value) => {
+        try {
+            return btoa(value);
+        } catch (e) {
+            return btoa(unescape(encodeURIComponent(value)));
+        }
+    };
+
+    const walkForValue = (value, predicate, depth = 0) => {
+        if (depth > 5 || value === null || value === undefined) return null;
+        if (typeof value === 'string') {
+            return predicate(value) ? value : null;
+        }
+        if (Array.isArray(value)) {
+            for (const item of value) {
+                const found = walkForValue(item, predicate, depth + 1);
+                if (found) return found;
+            }
+            return null;
+        }
+        if (typeof value === 'object') {
+            for (const key of Object.keys(value)) {
+                if (/session[_-]?id|chat[_-]?conversation[_-]?id/i.test(key) && typeof value[key] === 'string') {
+                    if (predicate(value[key])) return value[key];
+                }
+                const found = walkForValue(value[key], predicate, depth + 1);
+                if (found) return found;
+            }
+        }
+        return null;
+    };
+
+    const scanStorage = (predicate) => {
+        const stores = [window.localStorage, window.sessionStorage];
+        for (const store of stores) {
+            for (let i = 0; i < store.length; i++) {
+                const key = store.key(i);
+                const value = store.getItem(key);
+                if (!value) continue;
+                if (predicate(value)) return value;
+                try {
+                    const parsed = JSON.parse(value);
+                    const found = walkForValue(parsed, predicate);
+                    if (found) return found;
+                } catch (e) {}
+            }
+        }
+        return null;
+    };
+
+    const findExistingSessionId = () => {
+        return scanStorage(value => /###[0-9a-f-]{20,}###\d+/i.test(value));
+    };
+
+    const findUserId = () => {
+        const photo = document.querySelector('img[src*="/dir/photo/std/"]');
+        if (photo && photo.src) {
+            const match = photo.src.match(/\/dir\/photo\/std\/([^/.]+)\./);
+            if (match) return match[1];
+        }
+
+        const storedUser = scanStorage(value => /^[a-z][a-z0-9_-]{2,20}$/i.test(value));
+        if (storedUser) return storedUser;
+
+        const textMatch = document.body && document.body.innerText
+            ? document.body.innerText.match(/\b[a-z][a-z0-9_-]{2,20}@cisco\.com\b/i)
+            : null;
+        return textMatch ? textMatch[0].split('@')[0] : 'meraki-extension';
+    };
+
+    const sessionId = findExistingSessionId() || `${safeBtoa(findUserId())}###${makeUuid()}###${Date.now()}`;
+    const chatRequestId = makeUuid();
+    const payload = {
+        session_id: sessionId,
+        prompt,
+        uiversion: 'ciscogpt',
+        versionType: 'external',
+        fileDetails: [],
+        chat_conversation_id: sessionId,
+        chat_request_id: chatRequestId,
+        user_timezone: userTimezone,
+        conversation: true,
+        type: 'default',
+        operation: 'default',
+        model_type: 'default',
+        files_attached: false,
+        is_csv: false,
+        is_excel: false,
+        searchType: ''
+    };
+
+    const response = await fetch('/app/webservices/generativeAI/brain', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+            accept: '*/*',
+            'content-type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+    });
+
+    const contentType = response.headers.get('content-type') || '';
+    if (!response.ok) {
+        const body = await response.text();
+        return {
+            ok: false,
+            needsLogin: response.status === 401 || response.status === 403,
+            status: response.status,
+            error: `Circuit returned HTTP ${response.status}: ${body.slice(0, 1000)}`
+        };
+    }
+
+    if (response.redirected || contentType.includes('text/html')) {
+        const body = await response.text();
+        return {
+            ok: false,
+            needsLogin: true,
+            status: response.status,
+            error: `Circuit returned a login or HTML page instead of an AI response. ${body.slice(0, 300)}`
+        };
+    }
+
+    if (contentType.includes('text/event-stream') && response.body) {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let answer = '';
+        let lastEvent = null;
+
+        const processBlock = (block) => {
+            const dataLines = block
+                .split('\n')
+                .filter(line => line.startsWith('data:'))
+                .map(line => line.slice(5).trim());
+            if (dataLines.length === 0) return;
+
+            const dataText = dataLines.join('\n');
+            if (!dataText || dataText === '[DONE]') return;
+
+            try {
+                const event = JSON.parse(dataText);
+                lastEvent = event;
+                if (typeof event.data === 'string') {
+                    answer += event.data;
+                }
+            } catch (e) {}
+        };
+
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const blocks = buffer.split('\n\n');
+            buffer = blocks.pop() || '';
+            blocks.forEach(processBlock);
+        }
+
+        if (buffer.trim()) processBlock(buffer);
+
+        return {
+            ok: true,
+            answer,
+            session_id: lastEvent && lastEvent.session_id ? lastEvent.session_id : sessionId,
+            response_type: lastEvent && lastEvent.response_type ? lastEvent.response_type : 'final_response_stream'
+        };
+    }
+
+    const text = await response.text();
+    try {
+        const json = JSON.parse(text);
+        return {
+            ok: true,
+            answer: json.data || json.response || JSON.stringify(json, null, 2),
+            session_id: json.session_id || sessionId,
+            response_type: json.response_type || 'json'
+        };
+    } catch (e) {
+        return {
+            ok: true,
+            answer: text,
+            session_id: sessionId,
+            response_type: contentType || 'text'
+        };
     }
 }
 

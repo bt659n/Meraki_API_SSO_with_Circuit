@@ -1,19 +1,20 @@
 {
   "manifest_version": 3,
-  "name": "Meraki API SSO Console",
-  "version": "4.5",
-  "description": "Chrome extension to execute Meraki Dashboard API calls using SSO authentication sessions, featuring JSON tree results, dynamic resizable tables, search matching, and CSV exports.",
+  "name": "Meraki API Connect to Circuit AI",
+  "version": "5.0",
+  "description": "Chrome extension to execute Meraki Dashboard API calls using SSO sessions and send selected results to Circuit AI.",
   "icons": {
     "16": "icon.png",
     "48": "icon.png",
     "128": "icon.png"
   },
-  "permissions": ["storage", "sidePanel"],
+  "permissions": ["storage", "sidePanel", "tabs", "scripting"],
   "host_permissions": [
     "*://*.meraki.com/*",
     "*://*.meraki.cn/*",
     "*://*.meraki.ca/*",
     "*://*.meraki.in/*",
+    "https://circuit.cisco.com/*",
     "https://raw.githubusercontent.com/*"
   ],
   "background": { "service_worker": "background.js" },
