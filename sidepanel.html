@@ -65,8 +65,13 @@
         .shortcut-btn { background: white; color: #166534; border: 1px solid #86efac; border-radius: 4px; padding: 5px 8px; font-size: 11px; font-weight: 700; cursor: pointer; }
         .shortcut-btn:hover { background: #dcfce7; }
         
-        button#run-btn { background: #16a34a; color: white; border: none; padding: 10px 15px; cursor: pointer; border-radius: 4px; font-weight: bold; width: 100%; font-size: 14px; margin-bottom: 12px; transition: background 0.2s;}
+        .request-actions { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-bottom: 12px; }
+        button#run-btn { background: #16a34a; color: white; border: none; padding: 10px 15px; cursor: pointer; border-radius: 4px; font-weight: bold; width: 100%; font-size: 14px; transition: background 0.2s;}
         button#run-btn:hover { background: #15803d; }
+        button#run-btn:disabled { background: #94a3b8; cursor: not-allowed; }
+        button#stop-run-btn { display: none; background: #dc2626; color: white; border: none; padding: 10px 14px; cursor: pointer; border-radius: 4px; font-weight: bold; font-size: 14px; white-space: nowrap; transition: background 0.2s; }
+        button#stop-run-btn:hover { background: #b91c1c; }
+        button#stop-run-btn:disabled { background: #fca5a5; cursor: not-allowed; }
 
         .log-header { font-size: 13px; font-weight: bold; color: #334155; margin-bottom: 4px; }
         #debug-log { background: #1e293b; color: #94a3b8; padding: 10px; overflow: auto; height: 120px; border-radius: 4px; font-family: Consolas, monospace; white-space: pre-wrap; font-size: 11px; border: 1px solid #334155; margin-bottom: 15px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.2); }
@@ -168,7 +173,10 @@
     <div id="api-desc">Please select an API operation from the tree above...</div>
     <div class="row" id="param-container"></div>
     
-    <button id="run-btn">Run Selected API (SSO Direct)</button>
+    <div class="request-actions">
+        <button id="run-btn">Run Selected API (SSO Direct)</button>
+        <button id="stop-run-btn" title="Stop the current request and show already fetched data">Stop</button>
+    </div>
 
     <div class="log-header">⚙️ Console Logs & Engine Status:</div>
     <pre id="debug-log">Console ready...</pre>

@@ -6,6 +6,8 @@ let apiTreeRoot = {};
 let rawResponseData = null; // Store raw JSON response
 let currentTableData = [];   // Store flat array of objects for table searching & CSV export
 let tableHeaders = [];       // Store sorted header list
+let activeApiAbortController = null;
+let activeApiStopRequested = false;
 const CIRCUIT_HOME_URL = 'https://circuit.cisco.com/app/home';
 const CIRCUIT_DATA_CHAR_LIMIT = 70000;
 const CIRCUIT_HISTORY_KEY = 'circuitAnalysisHistory';
@@ -52,6 +54,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('update-spec-btn').addEventListener('click', forceUpdateSpec);
 
     document.getElementById('run-btn').addEventListener('click', runApi);
+    document.getElementById('stop-run-btn').addEventListener('click', stopActiveApiRequest);
     document.getElementById('api-search').addEventListener('input', handleApiSearch);
     
     // Tab switching
@@ -551,8 +554,70 @@ function extractErrorText(body) {
     }
 }
 
+function setApiRequestRunning(isRunning) {
+    const runBtn = document.getElementById('run-btn');
+    const stopBtn = document.getElementById('stop-run-btn');
+
+    if (runBtn) {
+        runBtn.disabled = isRunning;
+        runBtn.innerText = isRunning ? 'Running API Request...' : 'Run Selected API (SSO Direct)';
+    }
+
+    if (stopBtn) {
+        stopBtn.style.display = isRunning ? 'inline-block' : 'none';
+        stopBtn.disabled = false;
+        stopBtn.innerText = 'Stop';
+    }
+}
+
+function stopActiveApiRequest() {
+    const stopBtn = document.getElementById('stop-run-btn');
+
+    if (!activeApiAbortController) return;
+
+    activeApiStopRequested = true;
+    if (stopBtn) {
+        stopBtn.disabled = true;
+        stopBtn.innerText = 'Stopping...';
+    }
+    activeApiAbortController.abort();
+}
+
+function displayApiResult(resultData, treeContainer) {
+    rawResponseData = resultData;
+    updateCircuitPayloadHint();
+
+    renderJsonTree(resultData, treeContainer);
+
+    if (Array.isArray(resultData) && resultData.length > 0 && typeof resultData[0] === 'object') {
+        currentTableData = resultData.map(item => flattenObject(item));
+
+        const uniqueKeys = new Set();
+        const scanLimit = Math.min(currentTableData.length, 20);
+        for (let i = 0; i < scanLimit; i++) {
+            Object.keys(currentTableData[i]).forEach(k => uniqueKeys.add(k));
+        }
+        tableHeaders = Array.from(uniqueKeys);
+        const primaryFields = ['id', 'name', 'serial', 'mac', 'status', 'networkId', 'organizationId'];
+        tableHeaders.sort((a, b) => {
+            const idxA = primaryFields.indexOf(a);
+            const idxB = primaryFields.indexOf(b);
+            if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+            if (idxA !== -1) return -1;
+            if (idxB !== -1) return 1;
+            return a.localeCompare(b);
+        });
+
+        renderTable(currentTableData, tableHeaders);
+        document.getElementById('tab-table').style.display = 'inline-block';
+    } else {
+        document.getElementById('tab-table').style.display = 'none';
+    }
+}
+
 async function runApi() {
     if (!currentSelectedApi) return alert("Please select an API operation first.");
+    if (activeApiAbortController) return;
     
     const logBox = document.getElementById('debug-log');
     const treeContainer = document.getElementById('data-result-tree');
@@ -568,6 +633,10 @@ async function runApi() {
     rawResponseData = null;
     currentTableData = [];
     tableHeaders = [];
+    activeApiStopRequested = false;
+    const requestAbortController = new AbortController();
+    activeApiAbortController = requestAbortController;
+    setApiRequestRunning(true);
     
     let debugLogs = `=======================================\n🚀 [${currentSelectedApi.method}] ${currentSelectedApi.path}\n=======================================\n`;
     const log = (msg) => {
@@ -634,29 +703,49 @@ async function runApi() {
     const timeNormalizationLog = normalizeTimeQueryValues(queryValues);
     if (timeNormalizationLog) log(`ℹ️ ${timeNormalizationLog}`);
 
+    const supportsPerPage = apiParams.some(param => param.in === 'query' && param.name === 'perPage');
+    if (supportsPerPage && !queryValues.perPage) {
+        queryValues.perPage = '1000';
+        const perPageEl = document.getElementById('param-query-perPage');
+        if (perPageEl) perPageEl.value = queryValues.perPage;
+        log(`ℹ️ perPage was empty. Using 1000 to reduce pagination requests.`);
+    }
+
     const queryPairs = Object.keys(queryValues).map(key => `${encodeURIComponent(key)}=${encodeURIComponent(queryValues[key])}`);
     const baseQueryString = queryPairs.length > 0 ? `?${queryPairs.join('&')}` : '';
     let targetUrl = `https://${envDomain}/api/v1${finalPath}${baseQueryString}`;
     let baseUrlWithoutCursor = targetUrl; 
+    let aggregatedData = [];
+    let isPaginatedFlow = false;
+    let currentPageIndex = 0;
     
     try {
         const fetchOptions = {
             method: method,
             credentials: 'include', 
-            headers: { "Accept": "application/json", "Content-Type": "application/json" }
+            headers: { "Accept": "application/json", "Content-Type": "application/json" },
+            signal: requestAbortController.signal
         };
 
         if (method === 'POST') fetchOptions.body = JSON.stringify({});
 
-        let aggregatedData = [];
-        let isPaginatedFlow = false;
-        let currentPageIndex = 0;
-        let lastFirstItemId = null; 
-        const MAX_PAGE_SAFETY_LIMIT = 50; 
+        const visitedRequestUrls = new Set();
+        const MAX_PAGE_SAFETY_LIMIT = 250; 
 
         log(`Verifying session and starting request transmission to ${envDomain}...`);
 
         while (targetUrl) {
+            if (activeApiStopRequested) {
+                log(`🛑 Request stopped by user before dispatching the next page.`);
+                break;
+            }
+
+            if (visitedRequestUrls.has(targetUrl)) {
+                log(`🛑 Pagination loop detected. URL was already requested: ${targetUrl}`);
+                break;
+            }
+            visitedRequestUrls.add(targetUrl);
+
             currentPageIndex++;
             log(`[Page ${currentPageIndex}] Dispatching Fetch: ${targetUrl}`);
 
@@ -683,13 +772,6 @@ async function runApi() {
             log(`✅ Response received (HTTP ${response.status}). Records in this page: ${itemCount}`);
 
             if (Array.isArray(pageJson)) {
-                const currentFirstItemId = pageJson.length > 0 ? (pageJson[0].id || pageJson[0].serial || pageJson[0].occurredAt || JSON.stringify(pageJson[0]).substring(0, 20)) : null;
-                if (currentPageIndex > 1 && currentFirstItemId && currentFirstItemId === lastFirstItemId) {
-                    log(`🛑 Duplicate data sequence detected (paging cursor may have looped). Halting pagination.`);
-                    break; 
-                }
-                lastFirstItemId = currentFirstItemId;
-
                 aggregatedData = aggregatedData.concat(pageJson);
                 isPaginatedFlow = true;
             } else {
@@ -700,20 +782,24 @@ async function runApi() {
             const linkHeader = response.headers.get('Link') || response.headers.get('link');
             targetUrl = null; 
 
-            if (linkHeader && currentPageIndex < MAX_PAGE_SAFETY_LIMIT) {
+            if (linkHeader) {
                 log(`🔗 Received Link Header: ${linkHeader}`);
-                const links = linkHeader.split(',');
-                for (let link of links) {
-                    if (/rel=["']?next["']?/.test(link)) {
-                        const match = link.match(/<([^>]+)>/);
-                        if (match) {
-                            let rawNextUrl = match[1];
-                            try {
-                                const urlObj = new URL(rawNextUrl);
-                                urlObj.host = envDomain; 
-                                targetUrl = urlObj.toString();
-                            } catch (urlErr) {
-                                targetUrl = rawNextUrl.replace(/https:\/\/[^\/]+/, `https://${envDomain}`);
+                if (currentPageIndex >= MAX_PAGE_SAFETY_LIMIT) {
+                    log(`🛑 Safety limit reached after ${MAX_PAGE_SAFETY_LIMIT} pages. Narrow the time range if more data is needed.`);
+                } else {
+                    const links = linkHeader.split(',');
+                    for (let link of links) {
+                        if (/rel=["']?next["']?/.test(link)) {
+                            const match = link.match(/<([^>]+)>/);
+                            if (match) {
+                                let rawNextUrl = match[1];
+                                try {
+                                    const urlObj = new URL(rawNextUrl);
+                                    urlObj.host = envDomain; 
+                                    targetUrl = urlObj.toString();
+                                } catch (urlErr) {
+                                    targetUrl = rawNextUrl.replace(/https:\/\/[^\/]+/, `https://${envDomain}`);
+                                }
                             }
                         }
                     }
@@ -740,46 +826,28 @@ async function runApi() {
             }
         }
 
-        if (isPaginatedFlow && currentPageIndex > 1) {
+        if (activeApiStopRequested) {
+            log(`🛑 [Request stopped] Dispatched ${currentPageIndex} pages. Showing ${Array.isArray(aggregatedData) ? aggregatedData.length : 0} records already fetched.\n`);
+        } else if (isPaginatedFlow && currentPageIndex > 1) {
             log(`✨ [Auto-pagination complete] Dispatched ${currentPageIndex} pages. Aggregated total: ${aggregatedData.length} records\n`);
         }
         
-        rawResponseData = aggregatedData;
-        updateCircuitPayloadHint();
-        
-        // 1. Render JSON Tree
-        renderJsonTree(aggregatedData, treeContainer);
-        
-        // 2. Setup dynamic table if list of objects
-        if (Array.isArray(aggregatedData) && aggregatedData.length > 0 && typeof aggregatedData[0] === 'object') {
-            currentTableData = aggregatedData.map(item => flattenObject(item));
-            
-            // Extract sorted headers
-            const uniqueKeys = new Set();
-            const scanLimit = Math.min(currentTableData.length, 20);
-            for (let i = 0; i < scanLimit; i++) {
-                Object.keys(currentTableData[i]).forEach(k => uniqueKeys.add(k));
-            }
-            tableHeaders = Array.from(uniqueKeys);
-            const primaryFields = ['id', 'name', 'serial', 'mac', 'status', 'networkId', 'organizationId'];
-            tableHeaders.sort((a, b) => {
-                const idxA = primaryFields.indexOf(a);
-                const idxB = primaryFields.indexOf(b);
-                if (idxA !== -1 && idxB !== -1) return idxA - idxB;
-                if (idxA !== -1) return -1;
-                if (idxB !== -1) return 1;
-                return a.localeCompare(b);
-            });
-            
-            renderTable(currentTableData, tableHeaders);
-            document.getElementById('tab-table').style.display = 'inline-block';
-        } else {
-            document.getElementById('tab-table').style.display = 'none';
-        }
+        displayApiResult(aggregatedData, treeContainer);
 
     } catch (err) {
-        log(`💣 Connection blocked: ${err.message}`);
-        treeContainer.innerText = `Connection error. Unable to fetch data.\n(Please verify your browser is logged into ${envDomain} and your dashboard session is active)`;
+        if (err.name === 'AbortError' && activeApiStopRequested) {
+            log(`🛑 Request stopped by user. Showing ${Array.isArray(aggregatedData) ? aggregatedData.length : 0} records already fetched.\n`);
+            displayApiResult(aggregatedData, treeContainer);
+        } else {
+            log(`💣 Connection blocked: ${err.message}`);
+            treeContainer.innerText = `Connection error. Unable to fetch data.\n(Please verify your browser is logged into ${envDomain} and your dashboard session is active)`;
+        }
+    } finally {
+        if (activeApiAbortController === requestAbortController) {
+            activeApiAbortController = null;
+            activeApiStopRequested = false;
+            setApiRequestRunning(false);
+        }
     }
 }
 
