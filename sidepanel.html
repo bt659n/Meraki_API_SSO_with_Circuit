@@ -64,6 +64,8 @@
         .time-shortcut-row { display: flex; gap: 6px; flex-wrap: wrap; }
         .shortcut-btn { background: white; color: #166534; border: 1px solid #86efac; border-radius: 4px; padding: 5px 8px; font-size: 11px; font-weight: 700; cursor: pointer; }
         .shortcut-btn:hover { background: #dcfce7; }
+        .shortcut-btn.active { background: #16a34a; color: white; border-color: #15803d; box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.18); }
+        .shortcut-btn.active:hover { background: #15803d; }
         
         .request-actions { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-bottom: 12px; }
         button#run-btn { background: #16a34a; color: white; border: none; padding: 10px 15px; cursor: pointer; border-radius: 4px; font-weight: bold; width: 100%; font-size: 14px; transition: background 0.2s;}
@@ -72,6 +74,10 @@
         button#stop-run-btn { display: none; background: #dc2626; color: white; border: none; padding: 10px 14px; cursor: pointer; border-radius: 4px; font-weight: bold; font-size: 14px; white-space: nowrap; transition: background 0.2s; }
         button#stop-run-btn:hover { background: #b91c1c; }
         button#stop-run-btn:disabled { background: #fca5a5; cursor: not-allowed; }
+        .safety-controls { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: -4px 0 12px; }
+        .safety-controls label { font-size: 11px; color: #475569; margin: 0; }
+        .safety-controls input { width: 100%; margin-top: 3px; padding: 5px 6px; box-sizing: border-box; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 4px; background: white; }
+        .result-notice { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; border-radius: 4px; padding: 8px; margin-bottom: 8px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 12px; line-height: 1.4; }
 
         .log-header { font-size: 13px; font-weight: bold; color: #334155; margin-bottom: 4px; }
         #debug-log { background: #1e293b; color: #94a3b8; padding: 10px; overflow: auto; height: 120px; border-radius: 4px; font-family: Consolas, monospace; white-space: pre-wrap; font-size: 11px; border: 1px solid #334155; margin-bottom: 15px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.2); }
@@ -108,6 +114,10 @@
         .table-controls { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
         #table-search { flex: 1; padding: 6px 10px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 4px; }
         #table-search:focus { border-color: #16a34a; outline: none; }
+        .table-page-btn { background: white; color: #475569; border: 1px solid #cbd5e1; border-radius: 4px; padding: 5px 8px; font-size: 11px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+        .table-page-btn:hover { background: #f1f5f9; }
+        .table-page-btn:disabled { color: #94a3b8; background: #f8fafc; cursor: not-allowed; }
+        #table-page-status { color: #475569; font-size: 11px; font-weight: 700; white-space: nowrap; }
         
         #data-result-table-wrapper { overflow: auto; background: white; border: 1px solid #cbd5e1; border-radius: 4px; min-height: 400px; max-height: 700px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.05); }
         table#data-result-table { width: max-content; min-width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; table-layout: fixed; }
@@ -177,6 +187,17 @@
         <button id="run-btn">Run Selected API (SSO Direct)</button>
         <button id="stop-run-btn" title="Stop the current request and show already fetched data">Stop</button>
     </div>
+    <div class="safety-controls">
+        <label for="max-records-input">Max records
+            <input type="number" id="max-records-input" min="1000" step="1000" value="50000">
+        </label>
+        <label for="json-preview-input">JSON preview
+            <input type="number" id="json-preview-input" min="50" step="50" value="200">
+        </label>
+        <label for="table-preview-input">Table rows
+            <input type="number" id="table-preview-input" min="100" step="100" value="2000">
+        </label>
+    </div>
 
     <div class="log-header">⚙️ Console Logs & Engine Status:</div>
     <pre id="debug-log">Console ready...</pre>
@@ -186,7 +207,7 @@
             <button id="tab-json" class="tab-btn active">JSON View</button>
             <button id="tab-table" class="tab-btn" style="display: none;">Table View</button>
         </div>
-        <button id="copy-btn" class="copy-btn" title="Copy data to clipboard">📋 Copy Data</button>
+        <button id="copy-btn" class="copy-btn" title="Download full fetched JSON result">Download JSON</button>
     </div>
     
     <!-- JSON Tab Panel -->
@@ -198,7 +219,9 @@
     <div id="table-view-pane" class="tab-pane">
         <div class="table-controls">
             <input type="text" id="table-search" placeholder="Search rows in table...">
-            <button id="export-csv-btn" class="copy-btn" title="Download dynamic table data as CSV">📥 Export CSV</button>
+            <button id="table-prev-page-btn" class="table-page-btn">Prev</button>
+            <span id="table-page-status">Page 1</span>
+            <button id="table-next-page-btn" class="table-page-btn">Next</button>
         </div>
         <div id="data-result-table-wrapper">
             <table id="data-result-table">

@@ -6,12 +6,16 @@ let apiTreeRoot = {};
 let rawResponseData = null; // Store raw JSON response
 let currentTableData = [];   // Store flat array of objects for table searching & CSV export
 let tableHeaders = [];       // Store sorted header list
+let currentTablePageIndex = 0;
 let activeApiAbortController = null;
 let activeApiStopRequested = false;
 const CIRCUIT_HOME_URL = 'https://circuit.cisco.com/app/home';
 const CIRCUIT_DATA_CHAR_LIMIT = 70000;
 const CIRCUIT_HISTORY_KEY = 'circuitAnalysisHistory';
 const CIRCUIT_HISTORY_LIMIT = 8;
+const DEFAULT_MAX_FETCH_RECORDS = 50000;
+const DEFAULT_JSON_PREVIEW_RECORDS = 200;
+const DEFAULT_TABLE_PREVIEW_ROWS = 2000;
 const CIRCUIT_PROMPT_PRESETS = {
     troubleshoot: 'Analyze this Meraki API result. Summarize the important findings, call out anomalies, and suggest practical next troubleshooting steps.',
     'case-note': 'Write a concise support case note from this Meraki API result. Include symptoms, evidence, impact, and recommended next action. Keep it professional and grounded in the data.',
@@ -68,6 +72,7 @@ document.addEventListener('DOMContentLoaded', () => {
         tabTable.classList.remove('active');
         jsonPane.classList.add('active');
         tablePane.classList.remove('active');
+        updatePrimaryDataActionButton();
     });
     
     tabTable.addEventListener('click', () => {
@@ -75,55 +80,14 @@ document.addEventListener('DOMContentLoaded', () => {
         tabJson.classList.remove('active');
         tablePane.classList.add('active');
         jsonPane.classList.remove('active');
+        updatePrimaryDataActionButton();
     });
 
-    // Copy Data button listener
-    document.getElementById('copy-btn').addEventListener('click', function() {
-        const isJsonTab = tabJson.classList.contains('active');
-        let textToCopy = '';
-        
-        if (isJsonTab) {
-            if (!rawResponseData) return;
-            textToCopy = typeof rawResponseData === 'object' ? JSON.stringify(rawResponseData, null, 2) : String(rawResponseData);
-        } else {
-            if (currentTableData.length === 0) return;
-            const keyword = document.getElementById('table-search').value.trim().toLowerCase();
-            const filteredData = currentTableData.filter(row => {
-                if (!keyword) return true;
-                return Object.values(row).some(val => {
-                    if (val === null || val === undefined) return false;
-                    return String(val).toLowerCase().includes(keyword);
-                });
-            });
-            
-            textToCopy = tableHeaders.join(',') + '\n' + filteredData.map(row => {
-                return tableHeaders.map(h => {
-                    const val = row[h];
-                    if (val === undefined || val === null) return '';
-                    if (typeof val === 'object') return JSON.stringify(val);
-                    const valStr = String(val);
-                    return valStr.includes(',') || valStr.includes('"') || valStr.includes('\n') 
-                        ? `"${valStr.replace(/"/g, '""')}"` 
-                        : valStr;
-                }).join(',');
-            }).join('\n');
-        }
-        
-        if (!textToCopy) return;
-        
-        navigator.clipboard.writeText(textToCopy).then(() => {
-            const originalText = this.innerText;
-            this.innerText = '✅ Copied!';
-            this.classList.add('copied');
-            setTimeout(() => {
-                this.innerText = '📋 Copy Data';
-                this.classList.remove('copied');
-            }, 2000);
-        });
-    });
+    document.getElementById('copy-btn').addEventListener('click', handlePrimaryDataAction);
+    updatePrimaryDataActionButton();
 
-    // CSV Export button listener
-    document.getElementById('export-csv-btn').addEventListener('click', exportToCsv);
+    document.getElementById('table-prev-page-btn').addEventListener('click', () => changeTablePage(-1));
+    document.getElementById('table-next-page-btn').addEventListener('click', () => changeTablePage(1));
 
     // Table search input filter listener
     document.getElementById('table-search').addEventListener('input', handleTableSearch);
@@ -380,12 +344,20 @@ function loadApiToConsole(apiId) {
     paramContainer.innerHTML = finalHtml;
     bindTimeShortcutEvents();
 
+    ['timespan', 't0', 't1'].forEach(timeParam => {
+        const textInput = document.getElementById(`param-query-${timeParam}`);
+        if (textInput) {
+            textInput.addEventListener('input', clearActiveTimeShortcut);
+        }
+    });
+
     ['t0', 't1'].forEach(timeParam => {
         const datePicker = document.getElementById(`param-query-date-${timeParam}`);
         const textInput = document.getElementById(`param-query-${timeParam}`);
         if (datePicker && textInput) {
             const syncTime = () => {
                 textInput.value = datePicker.value ? datePicker.value + ':00Z' : '';
+                clearActiveTimeShortcut();
             };
             datePicker.addEventListener('input', syncTime);
             datePicker.addEventListener('change', syncTime);
@@ -415,11 +387,25 @@ function buildTimeShortcutHtml(apiParams) {
 
 function bindTimeShortcutEvents() {
     document.querySelectorAll('.shortcut-btn[data-minutes]').forEach(button => {
-        button.addEventListener('click', () => applyTimeShortcut(Number(button.dataset.minutes)));
+        button.addEventListener('click', () => applyTimeShortcut(Number(button.dataset.minutes), button));
     });
 }
 
-function applyTimeShortcut(minutes) {
+function clearActiveTimeShortcut() {
+    document.querySelectorAll('.shortcut-btn[data-minutes]').forEach(button => {
+        button.classList.remove('active');
+        button.setAttribute('aria-pressed', 'false');
+    });
+}
+
+function setActiveTimeShortcut(activeButton) {
+    clearActiveTimeShortcut();
+    if (!activeButton) return;
+    activeButton.classList.add('active');
+    activeButton.setAttribute('aria-pressed', 'true');
+}
+
+function applyTimeShortcut(minutes, activeButton = null) {
     const now = new Date();
     const start = new Date(now.getTime() - minutes * 60 * 1000);
     const timespanEl = document.getElementById('param-query-timespan');
@@ -434,6 +420,7 @@ function applyTimeShortcut(minutes) {
         if (t1El) t1El.value = '';
         if (t0DateEl) t0DateEl.value = '';
         if (t1DateEl) t1DateEl.value = '';
+        setActiveTimeShortcut(activeButton);
         return;
     }
     if (t0El) t0El.value = start.toISOString();
@@ -441,6 +428,7 @@ function applyTimeShortcut(minutes) {
 
     if (t0DateEl) t0DateEl.value = isoToDateTimeLocal(start);
     if (t1DateEl) t1DateEl.value = isoToDateTimeLocal(now);
+    setActiveTimeShortcut(activeButton);
 }
 
 function normalizeTimeQueryValues(queryValues) {
@@ -583,19 +571,76 @@ function stopActiveApiRequest() {
     activeApiAbortController.abort();
 }
 
+function isJsonViewActive() {
+    const tabJson = document.getElementById('tab-json');
+    return !tabJson || tabJson.classList.contains('active');
+}
+
+function updatePrimaryDataActionButton() {
+    const actionBtn = document.getElementById('copy-btn');
+    if (!actionBtn) return;
+    if (actionBtn.disabled) return;
+
+    if (isJsonViewActive()) {
+        actionBtn.innerText = 'Download JSON';
+        actionBtn.title = 'Download the full fetched JSON result';
+    } else {
+        actionBtn.innerText = 'Export Excel CSV';
+        actionBtn.title = 'Download the full fetched table data as a CSV file that opens in Excel';
+    }
+}
+
+function handlePrimaryDataAction() {
+    if (isJsonViewActive()) {
+        exportToJson();
+    } else {
+        exportToCsv();
+    }
+}
+
+function getPositiveIntegerInput(id, fallback, min, max) {
+    const el = document.getElementById(id);
+    const value = el ? Number.parseInt(el.value, 10) : NaN;
+    if (!Number.isFinite(value)) return fallback;
+    return Math.min(Math.max(value, min), max);
+}
+
+function getApiSafetyLimits() {
+    return {
+        maxFetchRecords: getPositiveIntegerInput('max-records-input', DEFAULT_MAX_FETCH_RECORDS, 1000, 1000000),
+        jsonPreviewRecords: getPositiveIntegerInput('json-preview-input', DEFAULT_JSON_PREVIEW_RECORDS, 50, 10000),
+        tablePreviewRows: getPositiveIntegerInput('table-preview-input', DEFAULT_TABLE_PREVIEW_ROWS, 100, 50000)
+    };
+}
+
+function appendArrayPageWithinLimit(target, page, maxRecords) {
+    const remaining = maxRecords - target.length;
+    if (remaining <= 0) return 0;
+    const itemsToAppend = page.slice(0, remaining);
+    target.push(...itemsToAppend);
+    return itemsToAppend.length;
+}
+
 function displayApiResult(resultData, treeContainer) {
+    const limits = getApiSafetyLimits();
+    const isArrayResult = Array.isArray(resultData);
+    const jsonRenderData = isArrayResult && resultData.length > limits.jsonPreviewRecords
+        ? resultData.slice(0, limits.jsonPreviewRecords)
+        : resultData;
+    const jsonNotice = isArrayResult && resultData.length > limits.jsonPreviewRecords
+        ? `JSON preview is showing the first ${limits.jsonPreviewRecords.toLocaleString()} of ${resultData.length.toLocaleString()} fetched records to keep the side panel responsive.`
+        : '';
+
     rawResponseData = resultData;
     updateCircuitPayloadHint();
 
-    renderJsonTree(resultData, treeContainer);
+    renderJsonTree(jsonRenderData, treeContainer, jsonNotice);
 
     if (Array.isArray(resultData) && resultData.length > 0 && typeof resultData[0] === 'object') {
-        currentTableData = resultData.map(item => flattenObject(item));
-
         const uniqueKeys = new Set();
-        const scanLimit = Math.min(currentTableData.length, 20);
+        const scanLimit = Math.min(resultData.length, 20);
         for (let i = 0; i < scanLimit; i++) {
-            Object.keys(currentTableData[i]).forEach(k => uniqueKeys.add(k));
+            Object.keys(flattenObject(resultData[i])).forEach(k => uniqueKeys.add(k));
         }
         tableHeaders = Array.from(uniqueKeys);
         const primaryFields = ['id', 'name', 'serial', 'mac', 'status', 'networkId', 'organizationId'];
@@ -608,11 +653,54 @@ function displayApiResult(resultData, treeContainer) {
             return a.localeCompare(b);
         });
 
-        renderTable(currentTableData, tableHeaders);
+        currentTablePageIndex = 0;
+        renderCurrentTablePage();
         document.getElementById('tab-table').style.display = 'inline-block';
     } else {
+        currentTableData = [];
+        currentTablePageIndex = 0;
         document.getElementById('tab-table').style.display = 'none';
     }
+}
+
+function renderCurrentTablePage() {
+    const limits = getApiSafetyLimits();
+    const tableData = Array.isArray(rawResponseData) ? rawResponseData : [];
+    const pageSize = limits.tablePreviewRows;
+    const totalPages = Math.max(1, Math.ceil(tableData.length / pageSize));
+    currentTablePageIndex = Math.min(Math.max(currentTablePageIndex, 0), totalPages - 1);
+
+    const start = currentTablePageIndex * pageSize;
+    const end = Math.min(start + pageSize, tableData.length);
+    currentTableData = tableData.slice(start, end).map(item => flattenObject(item));
+
+    const notice = tableData.length > pageSize
+        ? `Table renders ${start + 1}-${end} of ${tableData.length.toLocaleString()} fetched records. Use Prev/Next to render another local page without refetching.`
+        : '';
+
+    renderTable(currentTableData, tableHeaders, notice);
+    updateTablePageControls(totalPages, start, end, tableData.length);
+}
+
+function updateTablePageControls(totalPages, start, end, totalRows) {
+    const prevBtn = document.getElementById('table-prev-page-btn');
+    const nextBtn = document.getElementById('table-next-page-btn');
+    const status = document.getElementById('table-page-status');
+
+    if (prevBtn) prevBtn.disabled = currentTablePageIndex <= 0;
+    if (nextBtn) nextBtn.disabled = currentTablePageIndex >= totalPages - 1;
+    if (status) {
+        status.innerText = totalRows > 0
+            ? `Page ${currentTablePageIndex + 1}/${totalPages} (${start + 1}-${end})`
+            : 'Page 0/0';
+    }
+}
+
+function changeTablePage(delta) {
+    if (!Array.isArray(rawResponseData) || rawResponseData.length === 0) return;
+    currentTablePageIndex += delta;
+    document.getElementById('table-search').value = '';
+    renderCurrentTablePage();
 }
 
 async function runApi() {
@@ -633,10 +721,6 @@ async function runApi() {
     rawResponseData = null;
     currentTableData = [];
     tableHeaders = [];
-    activeApiStopRequested = false;
-    const requestAbortController = new AbortController();
-    activeApiAbortController = requestAbortController;
-    setApiRequestRunning(true);
     
     let debugLogs = `=======================================\n🚀 [${currentSelectedApi.method}] ${currentSelectedApi.path}\n=======================================\n`;
     const log = (msg) => {
@@ -718,6 +802,11 @@ async function runApi() {
     let aggregatedData = [];
     let isPaginatedFlow = false;
     let currentPageIndex = 0;
+    const safetyLimits = getApiSafetyLimits();
+    activeApiStopRequested = false;
+    const requestAbortController = new AbortController();
+    activeApiAbortController = requestAbortController;
+    setApiRequestRunning(true);
     
     try {
         const fetchOptions = {
@@ -772,8 +861,12 @@ async function runApi() {
             log(`✅ Response received (HTTP ${response.status}). Records in this page: ${itemCount}`);
 
             if (Array.isArray(pageJson)) {
-                aggregatedData = aggregatedData.concat(pageJson);
+                const appendedCount = appendArrayPageWithinLimit(aggregatedData, pageJson, safetyLimits.maxFetchRecords);
                 isPaginatedFlow = true;
+                if (appendedCount < pageJson.length || aggregatedData.length >= safetyLimits.maxFetchRecords) {
+                    log(`🛑 Max records limit reached at ${aggregatedData.length.toLocaleString()} records. Increase Max records or narrow the time range if more data is needed.`);
+                    break;
+                }
             } else {
                 aggregatedData = pageJson;
                 break;
@@ -1438,8 +1531,14 @@ async function forceUpdateSpec() {
     }
 }
 
-function renderJsonTree(data, container) {
+function renderJsonTree(data, container, noticeText = '') {
     container.innerHTML = '';
+    if (noticeText) {
+        const notice = document.createElement('div');
+        notice.className = 'result-notice';
+        notice.innerText = noticeText;
+        container.appendChild(notice);
+    }
     if (data === null || data === undefined) {
         const nullNode = document.createElement('span');
         nullNode.className = 'json-val-null';
@@ -1603,9 +1702,16 @@ function flattenObject(obj, prefix = '') {
     return flat;
 }
 
-function renderTable(flatData, headers) {
+function renderTable(flatData, headers, noticeText = '') {
     const table = document.getElementById('data-result-table');
     table.innerHTML = '';
+
+    if (noticeText) {
+        const caption = document.createElement('caption');
+        caption.className = 'result-notice';
+        caption.innerText = noticeText;
+        table.appendChild(caption);
+    }
     
     const thead = document.createElement('thead');
     const headerRow = document.createElement('tr');
@@ -1708,51 +1814,121 @@ function handleTableSearch(e) {
     });
 }
 
-function exportToCsv() {
-    if (currentTableData.length === 0) return;
-    
-    const keyword = document.getElementById('table-search').value.trim().toLowerCase();
-    const filteredData = currentTableData.filter(row => {
-        if (!keyword) return true;
-        return Object.values(row).some(val => {
-            if (val === null || val === undefined) return false;
-            const strVal = typeof val === 'object' ? JSON.stringify(val) : String(val);
-            return strVal.toLowerCase().includes(keyword);
-        });
+function yieldToBrowser() {
+    return new Promise(resolve => setTimeout(resolve, 0));
+}
+
+function rowMatchesKeyword(row, keyword) {
+    if (!keyword) return true;
+    return Object.values(row).some(val => {
+        if (val === null || val === undefined) return false;
+        const strVal = typeof val === 'object' ? JSON.stringify(val) : String(val);
+        return strVal.toLowerCase().includes(keyword);
     });
-    
-    if (filteredData.length === 0) {
-        alert("No visible data rows to export.");
-        return;
-    }
-    
-    let csvContent = tableHeaders.map(h => `"${h.replace(/"/g, '""')}"`).join(',') + '\n';
-    
-    filteredData.forEach(row => {
-        const rowStr = tableHeaders.map(h => {
-            let val = row[h];
-            if (val === undefined || val === null) {
-                return '""';
-            }
-            if (typeof val === 'object') {
-                val = JSON.stringify(val);
-            }
-            return `"${String(val).replace(/"/g, '""')}"`;
-        }).join(',');
-        csvContent += rowStr + '\n';
-    });
-    
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+}
+
+function getExportBaseName() {
+    const envDomain = document.getElementById('env-select').value;
+    const cleanPath = currentSelectedApi ? currentSelectedApi.path.replace(/\//g, '_').replace(/[{}]/g, '') : 'export';
+    return `${envDomain}${cleanPath}_export`;
+}
+
+function downloadBlob(blob, fileName) {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    
-    const envDomain = document.getElementById('env-select').value;
-    const cleanPath = currentSelectedApi ? currentSelectedApi.path.replace(/\//g, '_').replace(/[{}]/g, '') : 'export';
-    link.setAttribute('download', `${envDomain}${cleanPath}_export.csv`);
-    
+    link.setAttribute('download', fileName);
+
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+}
+
+async function exportToCsv() {
+    if (!Array.isArray(rawResponseData) || rawResponseData.length === 0) return;
+
+    const exportBtn = document.getElementById('copy-btn');
+    const originalText = exportBtn ? exportBtn.innerText : '';
+    const keyword = document.getElementById('table-search').value.trim().toLowerCase();
+    const headers = new Set(tableHeaders);
+    const csvRows = [];
+    let exportedRows = 0;
+    const batchSize = 500;
+
+    if (exportBtn) {
+        exportBtn.disabled = true;
+        exportBtn.innerText = 'Preparing...';
+    }
+
+    try {
+        for (let i = 0; i < rawResponseData.length; i += batchSize) {
+            rawResponseData.slice(i, i + batchSize).forEach(item => {
+                const row = flattenObject(item);
+                if (!rowMatchesKeyword(row, keyword)) return;
+                Object.keys(row).forEach(key => headers.add(key));
+            });
+            if (exportBtn) exportBtn.innerText = `Scanning ${Math.min(i + batchSize, rawResponseData.length).toLocaleString()}`;
+            await yieldToBrowser();
+        }
+
+        const headerList = Array.from(headers);
+        csvRows.push(headerList.map(h => `"${h.replace(/"/g, '""')}"`).join(','));
+
+        for (let i = 0; i < rawResponseData.length; i += batchSize) {
+            rawResponseData.slice(i, i + batchSize).forEach(item => {
+                const row = flattenObject(item);
+                if (!rowMatchesKeyword(row, keyword)) return;
+
+                const rowStr = headerList.map(h => {
+                    let val = row[h];
+                    if (val === undefined || val === null) return '""';
+                    if (typeof val === 'object') val = JSON.stringify(val);
+                    return `"${String(val).replace(/"/g, '""')}"`;
+                }).join(',');
+                csvRows.push(rowStr);
+                exportedRows++;
+            });
+            if (exportBtn) exportBtn.innerText = `Writing ${exportedRows.toLocaleString()}`;
+            await yieldToBrowser();
+        }
+
+        if (exportedRows === 0) {
+            alert('No rows matched the current table search.');
+            return;
+        }
+
+        const blob = new Blob([csvRows.join('\n') + '\n'], { type: 'text/csv;charset=utf-8;' });
+        downloadBlob(blob, `${getExportBaseName()}.csv`);
+    } finally {
+        if (exportBtn) {
+            exportBtn.disabled = false;
+            exportBtn.innerText = originalText || 'Export Excel CSV';
+            updatePrimaryDataActionButton();
+        }
+    }
+}
+
+async function exportToJson() {
+    if (!rawResponseData) return;
+
+    const exportBtn = document.getElementById('copy-btn');
+    const originalText = exportBtn ? exportBtn.innerText : '';
+
+    if (exportBtn) {
+        exportBtn.disabled = true;
+        exportBtn.innerText = 'Preparing...';
+    }
+
+    try {
+        await yieldToBrowser();
+        const blob = new Blob([JSON.stringify(rawResponseData, null, 2)], { type: 'application/json;charset=utf-8;' });
+        downloadBlob(blob, `${getExportBaseName()}.json`);
+    } finally {
+        if (exportBtn) {
+            exportBtn.disabled = false;
+            exportBtn.innerText = originalText || 'Download JSON';
+            updatePrimaryDataActionButton();
+        }
+    }
 }

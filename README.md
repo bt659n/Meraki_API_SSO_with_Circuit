@@ -17,20 +17,30 @@ A lightweight Chrome Developer Extension designed for Cisco Meraki Network Suppo
 ### 🌳 3. Interactive JSON Tree Viewer
 * Visualizes API response bodies using a color-coded syntax highlighter.
 * Supports collapsible/expandable nodes for nested arrays and objects to drill down into payload data easily.
+* For very large array responses, renders a configurable JSON preview instead of building a massive DOM tree.
+* Downloads the full fetched JSON result from the JSON View action button, even when the on-screen preview is limited.
 
 ### 📊 4. Dynamic Data Table View
 * When an endpoint returns an array of records, the console activates the **Data Table** view.
 * Flattens nested dictionary keys (e.g. `device.status`) into structured columns.
 * Placed columns are fully **resizable** by dragging header borders.
 * Cells containing complex structures or arrays are stringified and safely truncated with tooltips showing the complete value on hover.
+* Renders large datasets in local table pages so the side panel stays responsive.
+* Uses **Prev** and **Next** to move through already fetched records without re-querying the Meraki API.
 
 ### 📋 5. Double-Click to Copy & Visual Flash
 * Double-clicking any cell in the Data Table copies its **entire untruncated content** directly to the clipboard.
 * The clicked cell briefly flashes green as confirmation.
 
-### 💾 6. Client-Side Search & CSV Exporter
+### 💾 6. Large Result Controls & Exporter
+* Adds a **Stop** button while an API request is running. Stopping cancels the active fetch and displays records already received.
+* Adds local safety controls for maximum fetched records, JSON preview size, and table page size.
+* Automatically uses `perPage=1000` when supported and left empty, reducing the number of pagination requests.
 * Filter rows instantly with the client-side search box inside the Data Table view.
-* Export filtered or complete table outputs to a formatted `.csv` download file matching your select environment and request path.
+* In **JSON View**, the primary result action downloads the full fetched `.json` file.
+* In **Table View**, the primary result action exports the full fetched table data as a `.csv` file that opens cleanly in Excel.
+
+> Note: UI previews are intentionally capped to avoid browser slowdowns. CSV and JSON exports use the full data fetched up to the configured maximum record limit.
 
 ### 🤖 7. Send Result to Circuit AI
 * Adds a **Send to Circuit** panel below the API result.
@@ -42,6 +52,7 @@ A lightweight Chrome Developer Extension designed for Cisco Meraki Network Suppo
 ### ⏱️ 8. Time Parameter Shortcuts
 * Shows shortcut buttons for APIs with `timespan` or `t0`/`t1` query parameters.
 * Quickly fills common ranges like last 5 minutes, 30 minutes, 2 hours, or 1 day.
+* Highlights the selected shortcut in green, then clears that highlight when the time fields are manually edited.
 
 ### 🔄 9. OpenAPI Spec Synchronizer
 * Keeps the extension updated with the latest Meraki API releases.
@@ -75,11 +86,12 @@ A lightweight Chrome Developer Extension designed for Cisco Meraki Network Suppo
 
 5. **Execute the Call**:
    Click the green **Run Request** button. Status logs will populate in the debug window.
-   For APIs that require time range parameters, use the generated time shortcut buttons or fill `timespan` / `t0` and `t1` manually.
+   For APIs that require time range parameters, use the generated time shortcut buttons or fill `timespan` / `t0` and `t1` manually. The active shortcut stays highlighted until you manually edit the generated time fields.
+   For large paginated responses, adjust **Max records**, **JSON preview**, and **Table rows** before running. Click **Stop** at any time to halt pagination and keep the records already fetched.
 
 6. **View and Export Results**:
-   * Inspect the formatted payload in the **JSON View** tab.
-   * Toggle to the **Data Table** tab for lists, filter results, double-click values to copy them, or click **Download CSV** to export.
+   * Inspect the formatted payload in the **JSON View** tab. Large arrays show only a preview on screen, but **Download JSON** exports the full fetched payload.
+   * Toggle to the **Data Table** tab for lists, filter the current page, move through local pages with **Prev** / **Next**, double-click values to copy them, or use **Export Excel CSV** to export the full fetched table data.
 
 7. **Send Results to Circuit AI**:
    * Open `https://circuit.cisco.com/app/home` in Chrome and make sure you are logged in.
