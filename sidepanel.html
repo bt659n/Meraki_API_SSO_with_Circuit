@@ -135,7 +135,6 @@
         .circuit-config-row select { width: 100%; border: 1px solid #93c5fd; border-radius: 4px; background: white; color: #172554; font-size: 12px; padding: 6px 8px; }
         .circuit-option-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; color: #1e3a8a; font-size: 11px; font-weight: 700; }
         .circuit-option-row label { display: inline-flex; gap: 5px; align-items: center; margin: 0; font-size: 11px; color: #1e3a8a; }
-        #circuit-history-select { max-width: 100%; }
         .circuit-panel textarea { width: 100%; min-height: 76px; box-sizing: border-box; resize: vertical; border: 1px solid #93c5fd; border-radius: 4px; padding: 8px; font-size: 12px; line-height: 1.4; font-family: inherit; color: #172554; background: white; }
         .circuit-panel textarea:focus { border-color: #2563eb; outline: none; box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12); }
         .circuit-actions { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
@@ -257,10 +256,6 @@
         </div>
         <div class="circuit-option-row">
             <label><input type="checkbox" id="circuit-redact-sensitive" checked> Redact MAC/IP/serial-like values</label>
-            <label for="circuit-history-select">Recent</label>
-            <select id="circuit-history-select">
-                <option value="">No saved Circuit responses</option>
-            </select>
         </div>
         <textarea id="circuit-prompt" placeholder="Ask Circuit what to do with the latest API result...">Analyze this Meraki API result. Summarize the important findings, call out anomalies, and suggest practical next troubleshooting steps.</textarea>
         <div class="circuit-actions">

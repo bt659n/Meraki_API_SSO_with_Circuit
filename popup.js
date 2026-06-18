@@ -12,7 +12,6 @@ let activeApiStopRequested = false;
 const CIRCUIT_HOME_URL = 'https://circuit.cisco.com/app/home';
 const CIRCUIT_DATA_CHAR_LIMIT = 70000;
 const CIRCUIT_HISTORY_KEY = 'circuitAnalysisHistory';
-const CIRCUIT_HISTORY_LIMIT = 8;
 const DEFAULT_MAX_FETCH_RECORDS = 50000;
 const DEFAULT_JSON_PREVIEW_RECORDS = 200;
 const DEFAULT_TABLE_PREVIEW_ROWS = 2000;
@@ -99,8 +98,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('circuit-preset-select').addEventListener('change', applyCircuitPromptPreset);
     document.getElementById('circuit-data-scope').addEventListener('change', updateCircuitPayloadHint);
     document.getElementById('circuit-redact-sensitive').addEventListener('change', updateCircuitPayloadHint);
-    document.getElementById('circuit-history-select').addEventListener('change', loadCircuitHistoryItem);
-    loadCircuitHistory();
+    clearStoredCircuitHistory();
 });
 
 function formatTagName(str) {
@@ -263,6 +261,7 @@ function loadApiToConsole(apiId) {
     if (!apiObj) return;
 
     currentSelectedApi = apiObj;
+    clearCircuitResponseDisplay();
     const paramContainer = document.getElementById('param-container');
     paramContainer.innerHTML = ''; 
 
@@ -711,6 +710,7 @@ async function runApi() {
     const treeContainer = document.getElementById('data-result-tree');
     const envDomain = document.getElementById('env-select').value; 
     
+    clearCircuitResponseDisplay();
     treeContainer.innerText = "Executing request, please wait...";
     
     // Hide table tab initially and reset variables
@@ -1122,7 +1122,6 @@ async function sendCurrentResultToCircuit() {
 
         setStatus(`Circuit response received. Session: ${result.session_id || 'new conversation'}`);
         renderCircuitResponse(result.answer || '(Circuit returned an empty response.)');
-        saveCircuitHistoryItem(result.answer || '', getCircuitUserPrompt());
     } catch (err) {
         setStatus(`Circuit request failed: ${err.message}`);
         renderCircuitResponse([
@@ -1153,63 +1152,8 @@ function getCircuitUserPrompt() {
     return prompt ? prompt.value.trim() : '';
 }
 
-async function loadCircuitHistory() {
-    const select = document.getElementById('circuit-history-select');
-    if (!select) return;
-
-    const data = await chrome.storage.local.get([CIRCUIT_HISTORY_KEY]);
-    const history = Array.isArray(data[CIRCUIT_HISTORY_KEY]) ? data[CIRCUIT_HISTORY_KEY] : [];
-
-    select.innerHTML = '';
-    const emptyOption = document.createElement('option');
-    emptyOption.value = '';
-    emptyOption.innerText = history.length > 0 ? 'Select recent response...' : 'No saved Circuit responses';
-    select.appendChild(emptyOption);
-
-    history.forEach((item, idx) => {
-        const option = document.createElement('option');
-        option.value = String(idx);
-        option.innerText = `${item.createdAtLabel} - ${item.apiLabel}`;
-        select.appendChild(option);
-    });
-}
-
-async function saveCircuitHistoryItem(answer, prompt) {
-    if (!answer) return;
-
-    const data = await chrome.storage.local.get([CIRCUIT_HISTORY_KEY]);
-    const history = Array.isArray(data[CIRCUIT_HISTORY_KEY]) ? data[CIRCUIT_HISTORY_KEY] : [];
-    const apiLabel = currentSelectedApi
-        ? `[${currentSelectedApi.method}] ${currentSelectedApi.path}`
-        : 'Unknown API';
-    const createdAt = new Date();
-
-    history.unshift({
-        createdAt: createdAt.toISOString(),
-        createdAtLabel: createdAt.toLocaleString(),
-        apiLabel,
-        prompt,
-        answer
-    });
-
-    await chrome.storage.local.set({
-        [CIRCUIT_HISTORY_KEY]: history.slice(0, CIRCUIT_HISTORY_LIMIT)
-    });
-    await loadCircuitHistory();
-}
-
-async function loadCircuitHistoryItem() {
-    const select = document.getElementById('circuit-history-select');
-    const prompt = document.getElementById('circuit-prompt');
-    if (!select || select.value === '') return;
-
-    const data = await chrome.storage.local.get([CIRCUIT_HISTORY_KEY]);
-    const history = Array.isArray(data[CIRCUIT_HISTORY_KEY]) ? data[CIRCUIT_HISTORY_KEY] : [];
-    const item = history[Number(select.value)];
-    if (!item) return;
-
-    if (prompt && item.prompt) prompt.value = item.prompt;
-    renderCircuitResponse(item.answer);
+async function clearStoredCircuitHistory() {
+    await chrome.storage.local.remove(CIRCUIT_HISTORY_KEY);
 }
 
 async function openCircuitSsoPage(tabId = null) {
@@ -1246,6 +1190,19 @@ function resetCircuitResponseTools() {
 
     const actions = document.getElementById('circuit-response-actions');
 
+    if (actions) actions.style.display = 'none';
+}
+
+function clearCircuitResponseDisplay() {
+    const responseBox = document.getElementById('circuit-response');
+    const actions = document.getElementById('circuit-response-actions');
+
+    lastCircuitAnswer = '';
+
+    if (responseBox) {
+        responseBox.style.display = 'none';
+        responseBox.innerText = '';
+    }
     if (actions) actions.style.display = 'none';
 }
 

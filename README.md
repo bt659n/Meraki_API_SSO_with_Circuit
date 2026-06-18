@@ -47,7 +47,8 @@ A lightweight Chrome Developer Extension designed for Cisco Meraki Network Suppo
 * Sends the latest API response plus your instruction prompt to `https://circuit.cisco.com/app/webservices/generativeAI/brain`.
 * Uses an existing logged-in Circuit tab and parses the streaming response back into the extension.
 * Keeps the AI result as text in the extension, with a copy button for case notes or follow-up work.
-* Includes prompt presets, data-scope selection, optional redaction for MAC/IP/serial-like values, and recent response history.
+* Includes prompt presets, data-scope selection, and optional redaction for MAC/IP/serial-like values.
+* Circuit responses are not saved to local history; copy the response if you want to keep it.
 
 ### ⏱️ 8. Time Parameter Shortcuts
 * Shows shortcut buttons for APIs with `timespan` or `t0`/`t1` query parameters.
